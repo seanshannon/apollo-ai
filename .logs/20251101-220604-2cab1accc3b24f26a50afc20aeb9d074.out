@@ -1,0 +1,10 @@
+app/api/query-history/route.ts(12,17): error TS2339: Property 'user' does not exist on type '{}'.
+app/api/query-history/route.ts(21,24): error TS2339: Property 'user' does not exist on type '{}'.
+app/api/query/route.ts(12,17): error TS2339: Property 'user' does not exist on type '{}'.
+app/api/query/route.ts(27,26): error TS2339: Property 'user' does not exist on type '{}'.
+lib/auth.ts(2,15): error TS2305: Module '"next-auth"' has no exported member 'NextAuthOptions'.
+lib/auth.ts(56,17): error TS7031: Binding element 'token' implicitly has an 'any' type.
+lib/auth.ts(56,24): error TS7031: Binding element 'user' implicitly has an 'any' type.
+lib/auth.ts(64,21): error TS7031: Binding element 'session' implicitly has an 'any' type.
+lib/auth.ts(64,30): error TS7031: Binding element 'token' implicitly has an 'any' type.
+exit_code=2

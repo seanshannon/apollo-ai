@@ -1,0 +1,13 @@
+app/api/auth/[...nextauth]/route.ts(5,17): error TS2349: This expression is not callable.
+  Type 'typeof import("next-auth")' has no call signatures.
+app/api/query-history/route.ts(3,10): error TS2305: Module '"next-auth"' has no exported member 'getServerSession'.
+app/api/query/route.ts(3,10): error TS2305: Module '"next-auth"' has no exported member 'getServerSession'.
+app/dashboard/dashboard-client.tsx(86,42): error TS2339: Property 'firstName' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/dashboard/page.tsx(3,10): error TS2305: Module '"next-auth"' has no exported member 'getServerSession'.
+app/page.tsx(3,10): error TS2305: Module '"next-auth"' has no exported member 'getServerSession'.
+lib/auth.ts(2,10): error TS2305: Module '"next-auth"' has no exported member 'NextAuthOptions'.
+lib/auth.ts(56,17): error TS7031: Binding element 'token' implicitly has an 'any' type.
+lib/auth.ts(56,24): error TS7031: Binding element 'user' implicitly has an 'any' type.
+lib/auth.ts(64,21): error TS7031: Binding element 'session' implicitly has an 'any' type.
+lib/auth.ts(64,30): error TS7031: Binding element 'token' implicitly has an 'any' type.
+exit_code=2

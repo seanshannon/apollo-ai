@@ -1,0 +1,9 @@
+app/api/auth/[...nextauth]/route.ts(5,17): error TS2349: This expression is not callable.
+  Type 'typeof import("next-auth")' has no call signatures.
+app/api/query-history/route.ts(12,17): error TS2339: Property 'user' does not exist on type '{}'.
+app/api/query-history/route.ts(21,23): error TS2339: Property 'user' does not exist on type '{}'.
+app/api/query/route.ts(12,17): error TS2339: Property 'user' does not exist on type '{}'.
+app/api/query/route.ts(27,25): error TS2339: Property 'user' does not exist on type '{}'.
+lib/auth.ts(2,10): error TS2305: Module '"next-auth"' has no exported member 'NextAuthOptions'.
+lib/auth.ts(68,33): error TS2339: Property 'sub' does not exist on type 'JWT'.
+exit_code=2

@@ -1,0 +1,11 @@
+__tests__/lib/auth.test.ts(59,40): error TS2345: Argument of type '{ id: string; email: string; password: string; role: string; createdAt: Date; updatedAt: Date; }' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(60,37): error TS2345: Argument of type 'boolean' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(73,40): error TS2345: Argument of type 'null' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(95,40): error TS2345: Argument of type '{ id: string; email: string; password: string; role: string; createdAt: Date; updatedAt: Date; }' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(96,37): error TS2345: Argument of type 'boolean' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(118,40): error TS2345: Argument of type '{ id: string; email: string; password: string; role: string; createdAt: Date; updatedAt: Date; }' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(119,37): error TS2345: Argument of type 'boolean' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(132,40): error TS2345: Argument of type 'null' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(145,40): error TS2345: Argument of type 'null' is not assignable to parameter of type 'never'.
+__tests__/lib/auth.test.ts(158,40): error TS2345: Argument of type 'null' is not assignable to parameter of type 'never'.
+exit_code=2

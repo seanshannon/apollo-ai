@@ -1,0 +1,70 @@
+➤ YN0000: · Yarn 4.10.3
+➤ YN0000: ┌ Resolution step
+➤ YN0085: │ + @types/next-auth@npm:3.15.0, next-auth@npm:4.24.13
+➤ YN0000: └ Completed in 0s 389ms
+➤ YN0000: ┌ Post-resolution validation
+➤ YN0060: │ @typescript-eslint/parser is listed by your project with version 7.0.0 (p6cb6c0), which doesn't satisfy what @typescript-eslint/eslint-plugin requests (^6.0.0-alpha).
+➤ YN0060: │ eslint is listed by your project with version 9.24.0 (pe6e000), which doesn't satisfy what @typescript-eslint/eslint-plugin and other dependencies request (^8.57.0).
+➤ YN0002: │ app@workspace:. doesn't provide prettier (pd88b5f), requested by eslint-plugin-prettier.
+➤ YN0086: │ Some peer dependencies are incorrectly met by your project; run yarn explain peer-requirements <hash> for details, where <hash> is the six-letter p-prefixed code.
+➤ YN0086: │ Some peer dependencies are incorrectly met by dependencies; run yarn explain peer-requirements for details.
+➤ YN0000: └ Completed
+➤ YN0000: ┌ Fetch step
+➤ YN0013: │ 2 packages were added to the project (+ 891.87 KiB).
+➤ YN0000: └ Completed in 0s 944ms
+➤ YN0000: ┌ Link step
+➤ YN0000: └ Completed in 1s 851ms
+➤ YN0000: · Done with warnings in 3s 344ms
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.7.0) to ./node_modules/.prisma/client in 141ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Help us improve the Prisma ORM for everyone. Share your feedback in a short 2-min survey: https://pris.ly/orm/survey/release-5-22
+
+Starting server...
+  ▲ Next.js 14.2.28
+  - Local:        http://localhost:3000
+  - Environments: .env
+  - Experiments (use with caution):
+    · outputFileTracingRoot
+
+ ✓ Starting...
+ ✓ Ready in 1875ms
+ ○ Compiling / ...
+ ✓ Compiled / in 3.3s (889 modules)
+ ✓ Compiled in 481ms (327 modules)
+ GET / 200 in 49ms
+ GET / 200 in 39ms
+ GET / 200 in 33ms
+ GET / 200 in 37ms
+ GET / 200 in 44ms
+ GET / 307 in 74ms
+ GET / 307 in 78ms
+ GET / 307 in 51ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 971ms (985 modules)
+ GET /dashboard 200 in 1065ms
+ ✓ Compiled /api/auth/[...nextauth] in 233ms (620 modules)
+ GET /api/auth/session 200 in 690ms
+ GET /api/auth/session 200 in 35ms
+ GET / 200 in 82ms
+ GET / 200 in 81ms
+ GET / 307 in 73ms
+ GET /dashboard 200 in 44ms
+ GET /api/auth/session 200 in 35ms
+ GET /api/auth/session 200 in 21ms
+ GET / 200 in 39ms
+ GET / 200 in 35ms
+ GET / 200 in 33ms
+ GET / 200 in 38ms
+ GET /api/auth/session 200 in 66ms
+ GET / 200 in 37ms
+ GET / 200 in 35ms
+ GET / 200 in 36ms
+ GET / 200 in 33ms
+ GET / 200 in 35ms
+ GET /api/auth/session 200 in 32ms
+ GET / 200 in 32ms

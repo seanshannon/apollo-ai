@@ -1,0 +1,44 @@
+  ▲ Next.js 14.2.28
+  - Local:        http://localhost:3000
+  - Environments: .env
+  - Experiments (use with caution):
+    · outputFileTracingRoot
+
+ ✓ Starting...
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+ ✓ Ready in 1384ms
+ ○ Compiling / ...
+ ✓ Compiled / in 3.9s (889 modules)
+ GET / 200 in 4104ms
+ ✓ Compiled in 540ms (327 modules)
+ ✓ Compiled in 490ms (870 modules)
+ ✓ Compiled /api/auth/[...nextauth] in 219ms (561 modules)
+ GET /api/auth/providers 200 in 665ms
+ GET / 200 in 124ms
+ GET /api/auth/session 200 in 31ms
+ GET /api/auth/session 200 in 19ms
+ GET /api/auth/csrf 200 in 44ms
+ ○ Compiling /api/signup ...
+ ✓ Compiled /api/signup in 583ms (587 modules)
+ POST /api/signup 200 in 859ms
+ GET / 200 in 92ms
+ GET /api/auth/signin 302 in 66ms
+ GET /?callbackUrl=https://2aea113e.preview.abacusai.app 200 in 92ms
+ GET /api/auth/csrf 200 in 35ms
+ POST /api/auth/callback/credentials 302 in 149ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 966ms (1017 modules)
+ GET /dashboard 500 in 1075ms
+ GET / 307 in 60ms
+ GET /dashboard 500 in 77ms
+ GET / 200 in 41ms
+ GET / 200 in 33ms
+ GET /api/auth/session 200 in 45ms
+ GET /api/auth/session 200 in 21ms
+ ✓ Compiled in 711ms (1029 modules)
+ ✓ Compiled in 712ms (1029 modules)
+[?25h

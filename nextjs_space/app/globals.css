@@ -1,0 +1,305 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Terminator';
+  src: url('https://raw.githubusercontent.com/seanshannon/Mindex_assets/main/TerminatorDarkFate-JLlB.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --primary: 190 100% 50%; /* #00D4FF in HSL */
+  --primary-foreground: 0 0% 0%; /* Black */
+  --border: 190 100% 20%;
+  --input: 190 100% 10%;
+  --ring: 190 100% 50%;
+  --background: 0 0% 0%; /* Black */
+  --foreground: 190 100% 50%; /* #00D4FF */
+  --card: 0 0% 0%;
+  --card-foreground: 190 100% 50%;
+  --popover: 0 0% 5%;
+  --popover-foreground: 190 100% 50%;
+  --secondary: 190 50% 20%;
+  --secondary-foreground: 190 100% 50%;
+  --muted: 190 30% 15%;
+  --muted-foreground: 190 50% 70%;
+  --accent: 190 100% 40%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+  
+  html {
+    /* Prevent horizontal scroll on mobile */
+    overflow-x: hidden;
+    width: 100%;
+    height: 100%;
+  }
+  
+  body {
+    @apply bg-black text-terminal-green font-share-tech;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Ensure proper mobile scrolling */
+    overflow-x: hidden;
+    width: 100%;
+    /* Fix for iOS Safari bouncing */
+    -webkit-overflow-scrolling: touch;
+    /* Better text rendering on mobile */
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+}
+
+@layer utilities {
+  /* Accessibility utilities - WCAG 2.2 compliance */
+  
+  /* Screen reader only content - visible to screen readers but hidden visually */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  /* Screen reader only content that becomes visible on focus */
+  .sr-only:focus,
+  .sr-only:active {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: inherit;
+    margin: inherit;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+
+  /* Enhanced focus indicators - WCAG 2.4.7 (Focus Visible) */
+  *:focus-visible {
+    outline: 3px solid #00D4FF !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Remove default focus outline for mouse users, keep for keyboard */
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Focus within - for containers with focusable children */
+  .focus-within\:not-sr-only:focus-within {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: inherit;
+    margin: inherit;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    * {
+      border-width: 2px !important;
+    }
+  }
+
+  /* Reduced motion support - WCAG 2.3.3 (Animation from Interactions) */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Glow effects */
+  .glow-green {
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+  }
+
+  .hover-glow {
+    transition: all 0.3s ease;
+  }
+
+  .hover-glow:hover {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 10px rgba(0, 212, 255, 0.8);
+  }
+
+  /* Star animations */
+  @keyframes animStar {
+    from { transform: translateY(0); }
+    to { transform: translateY(-100%); }
+  }
+
+  .animate-star-slow {
+    animation: animStar 200s linear infinite;
+  }
+
+  .animate-star-medium {
+    animation: animStar 400s linear infinite;
+  }
+
+  .animate-star-fast {
+    animation: animStar 600s linear infinite;
+  }
+
+  /* Letter fade animation */
+  @keyframes fadeLetter {
+    to { opacity: 1; }
+  }
+
+  .animate-fade-letter {
+    animation: fadeLetter 0.5s ease-in-out forwards;
+  }
+
+  /* Fade up animation */
+  @keyframes fadeUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 1s ease forwards;
+  }
+
+  /* Blink animation */
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+
+  .animate-blink {
+    animation: blink 1s step-start infinite;
+  }
+
+  /* Terminal shadows */
+  .shadow-terminal {
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+  }
+
+  .shadow-terminal-lg {
+    box-shadow: 0 0 25px rgba(0, 212, 255, 0.7);
+  }
+
+  .drop-shadow-terminal {
+    filter: drop-shadow(0 0 2px #00D4FF);
+  }
+
+  /* Scan line effect */
+  @keyframes scan {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+
+  .scan-line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(transparent, rgba(0, 212, 255, 0.3), transparent);
+    animation: scan 8s linear infinite;
+    pointer-events: none;
+  }
+
+  /* Responsive utilities */
+  .container-responsive {
+    width: 100%;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .container-responsive {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container-responsive {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  /* Flexible height for mobile browsers */
+  .min-h-screen-safe {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* Prevent layout shift on mobile */
+  .no-tap-highlight {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #00D4FF;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00A8CC;
+}
+
+/* Selection styling */
+::selection {
+  background: #00D4FF;
+  color: #000000;
+}
+
+::-moz-selection {
+  background: #00D4FF;
+  color: #000000;
+}

@@ -1,0 +1,8 @@
+ ⨯ Error: [next-auth]: `useSession` must be wrapped in a <SessionProvider />
+    at useSession (/home/ubuntu/data_retriever_app/nextjs_space/.next/server/vendor-chunks/next-auth.js:489:11)
+    at DashboardClient (/home/ubuntu/data_retriever_app/nextjs_space/.next/server/app/dashboard/page.js:409:90)
+digest: "592045535"
+ ⨯ Error: [next-auth]: `useSession` must be wrapped in a <SessionProvider />
+    at useSession (/home/ubuntu/data_retriever_app/nextjs_space/.next/server/vendor-chunks/next-auth.js:489:11)
+    at DashboardClient (/home/ubuntu/data_retriever_app/nextjs_space/.next/server/app/dashboard/page.js:409:90)
+digest: "592045535"

@@ -1,0 +1,540 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/data_retriever_app/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String                 @id @default(cuid())
+  email               String                 @unique
+  password            String?
+  firstName           String?
+  lastName            String?
+  name                String?
+  image               String?
+  companyName         String?
+  jobTitle            String?
+  role                UserRole               @default(USER)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  encryptionSalt      String?
+  
+  // User Preferences
+  language            String?                @default("en")
+  timezone            String?                @default("America/New_York")
+  emailNotifications  Boolean?               @default(true)
+  queryAlerts         Boolean?               @default(true)
+  weeklyReport        Boolean?               @default(false)
+  
+  accounts            Account[]
+  queryHistory        QueryHistory[]
+  sessions            Session[]
+  zkDbConnections     ZKDatabaseConnection[]
+  memberships         OrganizationMember[]
+  ownedOrgs           Organization[]         @relation("OrganizationOwner")
+}
+
+model Organization {
+  id              String                   @id @default(cuid())
+  name            String
+  slug            String                   @unique
+  ownerId         String
+  plan            String                   @default("free") // free, starter, professional, enterprise
+  status          String                   @default("active") // active, suspended, cancelled
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  owner           User                     @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  members         OrganizationMember[]
+  dbConnections   ZKDatabaseConnection[]
+  queryHistory    QueryHistory[]
+  auditLogs       AuditLog[]
+  
+  @@index([ownerId])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole      @default(MEMBER)
+  invitedBy      String?
+  joinedAt       DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ZKDatabaseConnection {
+  id                   String        @id @default(cuid())
+  organizationId       String
+  userId               String        // User who created this connection
+  name                 String
+  type                 String        // postgres, oracle, mariadb, mysql, etc.
+  encryptedCredentials String        // Encrypted JSON with host, port, database, user, password
+  schemaCache          String?       // Cached schema metadata (JSON)
+  lastSchemaSync       DateTime?     // When schema was last synced
+  isActive             Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@map("zk_database_connections")
+}
+
+model QueryHistory {
+  id               String       @id @default(cuid())
+  organizationId   String
+  userId           String
+  naturalQuery     String
+  generatedSql     String?
+  databaseName     String
+  results          Json?
+  resultsSummary   String?
+  status           QueryStatus  @default(PENDING)
+  errorMessage     String?
+  executionTime    Int?
+  createdAt        DateTime     @default(now())
+  piiDetected      Boolean      @default(false)
+  piiTypes         String?
+  encryptedResults String?
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String
+  userId         String
+  action         String
+  resource       String?
+  details        String?
+  ipAddress      String?
+  userAgent      String?
+  success        Boolean
+  errorMessage   String?
+  timestamp      DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, timestamp])
+  @@index([userId, timestamp])
+  @@index([action, timestamp])
+  @@index([success, timestamp])
+  @@map("audit_logs")
+}
+
+model SalesCustomer {
+  id         String       @id @default(cuid())
+  firstName  String
+  lastName   String
+  email      String       @unique
+  phone      String?
+  address    String?
+  city       String?
+  state      String?
+  country    String       @default("USA")
+  zipCode    String?
+  latitude   Float?
+  longitude  Float?
+  dateJoined DateTime     @default(now())
+  totalSpent Float        @default(0)
+  orders     SalesOrder[]
+
+  @@map("sales_customers")
+}
+
+model SalesProduct {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  category    String
+  sku         String           @unique
+  stockLevel  Int              @default(0)
+  createdAt   DateTime         @default(now())
+  orderItems  SalesOrderItem[]
+
+  @@map("sales_products")
+}
+
+model SalesCompany {
+  id              String   @id @default(cuid())
+  companyName     String   @unique
+  industry        String
+  contactName     String
+  email           String   @unique
+  phone           String?
+  address         String?
+  city            String?
+  state           String?
+  country         String   @default("USA")
+  zipCode         String?
+  website         String?
+  employeeCount   Int?
+  annualRevenue   Float?
+  lifetimeValue   Float    @default(0)
+  contractValue   Float    @default(0)
+  dateJoined      DateTime @default(now())
+  status          String   @default("Active")
+  tier            String   @default("Standard")
+
+  @@map("sales_companies")
+}
+
+model SalesOrder {
+  id           String           @id @default(cuid())
+  orderNumber  String           @unique
+  customerId   String
+  orderDate    DateTime         @default(now())
+  status       OrderStatus      @default(PENDING)
+  totalAmount  Float
+  shippingCost Float            @default(0)
+  taxAmount    Float            @default(0)
+  items        SalesOrderItem[]
+  customer     SalesCustomer    @relation(fields: [customerId], references: [id])
+
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id         String       @id @default(cuid())
+  orderId    String
+  productId  String
+  quantity   Int
+  unitPrice  Float
+  totalPrice Float
+  order      SalesOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    SalesProduct @relation(fields: [productId], references: [id])
+
+  @@map("sales_order_items")
+}
+
+model HRDepartment {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  description String?
+  budget      Float?
+  managerId   String?      @unique
+  manager     HREmployee?  @relation("DepartmentManager", fields: [managerId], references: [id])
+  employees   HREmployee[] @relation("EmployeeDepartment")
+
+  @@map("hr_departments")
+}
+
+model HREmployee {
+  id           String          @id @default(cuid())
+  employeeId   String          @unique
+  firstName    String
+  lastName     String
+  email        String          @unique
+  phone        String?
+  gender       String?         // Male, Female, Non-binary, Prefer not to say
+  position     String
+  departmentId String
+  salary       Float
+  hireDate     DateTime
+  status       EmployeeStatus  @default(ACTIVE)
+  managedDept  HRDepartment?   @relation("DepartmentManager")
+  department   HRDepartment    @relation("EmployeeDepartment", fields: [departmentId], references: [id])
+  performance  HRPerformance[]
+
+  @@map("hr_employees")
+}
+
+model HRPerformance {
+  id         String     @id @default(cuid())
+  employeeId String
+  reviewDate DateTime
+  rating     Float
+  goals      String?
+  feedback   String?
+  reviewer   String
+  employee   HREmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("hr_performance")
+}
+
+model InvWarehouse {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  address   String
+  city      String
+  state     String
+  country   String         @default("USA")
+  capacity  Int
+  managerId String?
+  inventory InvInventory[]
+
+  @@map("inv_warehouses")
+}
+
+model InvSupplier {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  city        String?
+  state       String?
+  country     String       @default("USA")
+  products    InvProduct[]
+
+  @@map("inv_suppliers")
+}
+
+model InvProduct {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  sku         String         @unique
+  category    String
+  unitPrice   Float
+  supplierId  String
+  minStock    Int            @default(10)
+  maxStock    Int            @default(100)
+  inventory   InvInventory[]
+  supplier    InvSupplier    @relation(fields: [supplierId], references: [id])
+
+  @@map("inv_products")
+}
+
+model InvInventory {
+  id          String       @id @default(cuid())
+  productId   String
+  warehouseId String
+  quantity    Int
+  reservedQty Int          @default(0)
+  lastUpdated DateTime     @default(now()) @updatedAt
+  product     InvProduct   @relation(fields: [productId], references: [id])
+  warehouse   InvWarehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([productId, warehouseId])
+  @@map("inv_inventory")
+}
+
+model FinAccount {
+  id           String           @id @default(cuid())
+  accountName  String           @unique
+  accountType  AccountType
+  balance      Float            @default(0)
+  currency     String           @default("USD")
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  transactions FinTransaction[]
+
+  @@map("fin_accounts")
+}
+
+model FinTransaction {
+  id              String          @id @default(cuid())
+  accountId       String
+  amount          Float
+  type            TransactionType
+  category        String
+  description     String?
+  reference       String?
+  transactionDate DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  account         FinAccount      @relation(fields: [accountId], references: [id])
+
+  @@map("fin_transactions")
+}
+
+model FinBudget {
+  id          String   @id @default(cuid())
+  category    String
+  budgetYear  Int
+  budgetMonth Int?
+  allocated   Float
+  spent       Float    @default(0)
+  remaining   Float
+  createdAt   DateTime @default(now())
+
+  @@unique([category, budgetYear, budgetMonth])
+  @@map("fin_budgets")
+}
+
+model CustCustomer {
+  id           String            @id @default(cuid())
+  firstName    String
+  lastName     String
+  email        String            @unique
+  phone        String?
+  company      String?
+  tier         CustomerTier      @default(STANDARD)
+  status       CustomerStatus    @default(ACTIVE)
+  joinDate     DateTime          @default(now())
+  lastContact  DateTime?
+  interactions CustInteraction[]
+  tickets      CustTicket[]
+
+  @@map("cust_customers")
+}
+
+model CustTicket {
+  id           String            @id @default(cuid())
+  ticketNumber String            @unique
+  customerId   String
+  subject      String
+  description  String
+  priority     TicketPriority    @default(MEDIUM)
+  status       TicketStatus      @default(OPEN)
+  assignedTo   String?
+  category     String
+  resolution   String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  resolvedAt   DateTime?
+  interactions CustInteraction[]
+  customer     CustCustomer      @relation(fields: [customerId], references: [id])
+
+  @@map("cust_tickets")
+}
+
+model CustInteraction {
+  id         String          @id @default(cuid())
+  customerId String
+  ticketId   String?
+  type       InteractionType
+  channel    String
+  subject    String?
+  notes      String
+  agentName  String?
+  duration   Int?
+  createdAt  DateTime        @default(now())
+  customer   CustCustomer    @relation(fields: [customerId], references: [id])
+  ticket     CustTicket?     @relation(fields: [ticketId], references: [id])
+
+  @@map("cust_interactions")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum QueryStatus {
+  PENDING
+  SUCCESS
+  ERROR
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+  ON_LEAVE
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum TransactionType {
+  DEBIT
+  CREDIT
+}
+
+enum CustomerTier {
+  BASIC
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  CHURNED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum InteractionType {
+  INQUIRY
+  COMPLAINT
+  SUPPORT
+  SALES
+  FOLLOW_UP
+}
