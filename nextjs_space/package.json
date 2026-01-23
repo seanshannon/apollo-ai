@@ -112,7 +112,7 @@
     "jsonwebtoken": "9.0.2",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
-    "lodash": "4.17.21",
+    "lodash": "4.17.23",
     "lucide-react": "0.446.0",
     "mapbox-gl": "1.13.3",
     "next": "15.5.6",
