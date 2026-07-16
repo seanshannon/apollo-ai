@@ -52,6 +52,20 @@ export async function POST(
       );
     }
 
+    // Validate the requested role against the allowed set, and prevent
+    // privilege escalation: only an OWNER may grant OWNER or ADMIN. An ADMIN
+    // can only add MEMBER or VIEWER, so it cannot mint another OWNER/ADMIN.
+    const ASSIGNABLE_ROLES = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'];
+    if (!ASSIGNABLE_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+    if ((role === 'OWNER' || role === 'ADMIN') && membership.role !== 'OWNER') {
+      return NextResponse.json(
+        { error: 'Only the organization owner can assign the OWNER or ADMIN role' },
+        { status: 403 }
+      );
+    }
+
     // Find user to add
     const userToAdd = await prisma.user.findUnique({
       where: { email },

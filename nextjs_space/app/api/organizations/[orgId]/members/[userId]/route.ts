@@ -127,6 +127,20 @@ export async function PUT(
       );
     }
 
+    // Validate the requested role and prevent privilege escalation: only an
+    // OWNER may promote a member to OWNER or ADMIN. An ADMIN can only set
+    // MEMBER or VIEWER, so it cannot elevate anyone to admin/owner level.
+    const ASSIGNABLE_ROLES = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER'];
+    if (!ASSIGNABLE_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+    if ((role === 'OWNER' || role === 'ADMIN') && membership.role !== 'OWNER') {
+      return NextResponse.json(
+        { error: 'Only the organization owner can assign the OWNER or ADMIN role' },
+        { status: 403 }
+      );
+    }
+
     // Cannot change owner's role
     const organization = await prisma.organization.findUnique({
       where: { id: orgId },

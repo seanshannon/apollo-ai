@@ -141,8 +141,34 @@ export async function PUT(
 
     const updateData: any = {};
     if (name) updateData.name = name.trim();
-    if (plan) updateData.plan = plan;
-    if (status) updateData.status = status;
+
+    // Billing-sensitive fields (plan, status) must never be settable by a
+    // regular member request. Only the organization OWNER may change them,
+    // and only to a known-good value — otherwise a member could self-upgrade
+    // their plan or un-suspend a suspended org via mass assignment.
+    const VALID_PLANS = ['free', 'starter', 'professional', 'enterprise'];
+    const VALID_STATUSES = ['active', 'suspended', 'cancelled'];
+
+    if (plan !== undefined || status !== undefined) {
+      if (membership.role !== 'OWNER') {
+        return NextResponse.json(
+          { error: 'Only the organization owner can change plan or status' },
+          { status: 403 }
+        );
+      }
+      if (plan !== undefined) {
+        if (!VALID_PLANS.includes(plan)) {
+          return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
+        }
+        updateData.plan = plan;
+      }
+      if (status !== undefined) {
+        if (!VALID_STATUSES.includes(status)) {
+          return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+        }
+        updateData.status = status;
+      }
+    }
 
     const organization = await prisma.organization.update({
       where: { id: orgId },

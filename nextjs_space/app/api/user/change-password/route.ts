@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { createAuditLog } from '@/lib/audit';
+import { validatePasswordStrength } from '@/lib/password-validation';
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: NextRequest) {
@@ -24,9 +25,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (newPassword.length < 8) {
+    // Enforce the same strength policy as signup so a user cannot downgrade
+    // to a weak/common password through this endpoint.
+    const passwordValidation = validatePasswordStrength(newPassword);
+    if (!passwordValidation.valid) {
       return NextResponse.json(
-        { error: 'New password must be at least 8 characters long' },
+        {
+          error: 'New password does not meet security requirements',
+          errors: passwordValidation.errors,
+        },
         { status: 400 }
       );
     }

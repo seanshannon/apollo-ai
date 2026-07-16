@@ -6,6 +6,11 @@ import { prisma } from '@/lib/db'
 import bcrypt from 'bcryptjs'
 import { createAuditLog } from '@/lib/audit'
 
+// A valid bcrypt hash (cost 12) of a value no user password will match.
+// Used to run a comparison on the "user not found" path so that login timing
+// does not reveal whether an email is registered (user enumeration defence).
+const DUMMY_PASSWORD_HASH = '$2a$12$EJmhXKiYpbzsP2IBVQ9qpe/7CXbMd4fRkWG/LVCmAgstFnSkV3Avu'
+
 export const authOptions = {
   adapter: PrismaAdapter(prisma),
   providers: [
@@ -38,6 +43,11 @@ export const authOptions = {
         })
 
         if (!user || !user.password) {
+          // Run a dummy comparison so the response time on the "no such user"
+          // path matches the "wrong password" path and does not leak whether
+          // the email is registered.
+          await bcrypt.compare(credentials.password, DUMMY_PASSWORD_HASH)
+
           // Audit log for failed login (user not found) - non-blocking
           createAuditLog({
             userId: 'unknown',
@@ -46,7 +56,7 @@ export const authOptions = {
             success: false,
             errorMessage: 'User not found or no password set'
           }).catch(err => console.error('Audit log error:', err))
-          
+
           return null
         }
 
