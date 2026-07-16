@@ -26,7 +26,16 @@ function getValidatedEncryptionKey(): string {
   return key;
 }
 
-const ENCRYPTION_KEY: string = getValidatedEncryptionKey();
+// Validated lazily (and cached) so importing this module never throws when
+// ENCRYPTION_KEY is absent (e.g. during `next build`); the first actual
+// encrypt/decrypt call still fails loudly on a missing or weak key.
+let cachedKey: string | null = null;
+function getEncryptionKey(): string {
+  if (cachedKey === null) {
+    cachedKey = getValidatedEncryptionKey();
+  }
+  return cachedKey;
+}
 
 /**
  * Encrypts sensitive data
@@ -34,7 +43,7 @@ const ENCRYPTION_KEY: string = getValidatedEncryptionKey();
 export function encrypt(data: string): string {
   if (!data) return data
   try {
-    return CryptoJS.AES.encrypt(data, ENCRYPTION_KEY).toString()
+    return CryptoJS.AES.encrypt(data, getEncryptionKey()).toString()
   } catch (error) {
     console.error('Encryption error:', error)
     throw new Error('Failed to encrypt data')
@@ -47,7 +56,7 @@ export function encrypt(data: string): string {
 export function decrypt(encryptedData: string): string {
   if (!encryptedData) return encryptedData
   try {
-    const bytes = CryptoJS.AES.decrypt(encryptedData, ENCRYPTION_KEY)
+    const bytes = CryptoJS.AES.decrypt(encryptedData, getEncryptionKey())
     return bytes.toString(CryptoJS.enc.Utf8)
   } catch (error) {
     console.error('Decryption error:', error)
