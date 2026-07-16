@@ -99,5 +99,10 @@ export function cosineSimilarity(a: number[], b: number[]): number {
     normB += b[i] * b[i];
   }
   
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+  // A zero-magnitude vector (empty/failed embedding) has undefined cosine
+  // similarity; return 0 rather than NaN so downstream threshold/sort logic
+  // doesn't silently break (NaN > threshold is always false).
+  if (denominator === 0) return 0;
+  return dotProduct / denominator;
 }

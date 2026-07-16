@@ -13,6 +13,32 @@ export interface ExportOptions {
 }
 
 /**
+ * Escape a value for safe inclusion in HTML, preventing script injection when
+ * query results are rendered into the PDF/print document.
+ */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * Neutralize spreadsheet formula injection: a leading =, +, -, @, or control
+ * characters (tab/CR) cause Excel/Sheets to evaluate the cell as a formula.
+ * Prefixing with a single quote forces it to be treated as text.
+ */
+function sanitizeCsvValue(value: unknown): string {
+  const stringValue = String(value ?? '')
+  if (/^[=+\-@\t\r]/.test(stringValue)) {
+    return `'${stringValue}`
+  }
+  return stringValue
+}
+
+/**
  * Export data to CSV format
  */
 export function exportToCSV(data: any[], filename: string): void {
@@ -25,9 +51,8 @@ export function exportToCSV(data: any[], filename: string): void {
     headers.join(','),
     ...data.map(row => 
       headers.map(header => {
-        const value = row[header]
-        // Escape quotes and wrap in quotes if contains comma or newline
-        const stringValue = String(value || '')
+        // Neutralize formula injection first, then quote if needed
+        const stringValue = sanitizeCsvValue(row[header])
         if (stringValue.includes(',') || stringValue.includes('\n') || stringValue.includes('"')) {
           return `"${stringValue.replace(/"/g, '""')}"`
         }
@@ -68,16 +93,20 @@ export async function exportToPDF(data: any[], filename: string, options?: {
   // For PDF generation, we'll create a simple HTML document and use the browser's print functionality
   // In a production app, you might want to use a library like jsPDF or pdfmake
   
+  if (!data || data.length === 0) {
+    throw new Error('No data to export')
+  }
+
   const title = options?.title || 'Data Export'
   const summary = options?.summary || ''
-  
+
   const headers = Object.keys(data[0])
-  
+
   const htmlContent = `
     <!DOCTYPE html>
     <html>
     <head>
-      <title>${title}</title>
+      <title>${escapeHtml(title)}</title>
       <style>
         body {
           font-family: Arial, sans-serif;
@@ -121,18 +150,18 @@ export async function exportToPDF(data: any[], filename: string, options?: {
       </style>
     </head>
     <body>
-      <h1>${title}</h1>
-      ${summary ? `<div class="summary">${summary}</div>` : ''}
+      <h1>${escapeHtml(title)}</h1>
+      ${summary ? `<div class="summary">${escapeHtml(summary)}</div>` : ''}
       <table>
         <thead>
           <tr>
-            ${headers.map(h => `<th>${h.replace(/_/g, ' ').toUpperCase()}</th>`).join('')}
+            ${headers.map(h => `<th>${escapeHtml(h.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}
           </tr>
         </thead>
         <tbody>
           ${data.map(row => `
             <tr>
-              ${headers.map(h => `<td>${row[h] !== null && row[h] !== undefined ? row[h] : ''}</td>`).join('')}
+              ${headers.map(h => `<td>${row[h] !== null && row[h] !== undefined ? escapeHtml(row[h]) : ''}</td>`).join('')}
             </tr>
           `).join('')}
         </tbody>

@@ -170,7 +170,11 @@ export function maskQueryResults(results: any): any {
       if (typeof value === 'string') {
         const { masked: maskedValue } = maskPII(value)
         masked[key] = maskedValue
-      } else if (typeof value === 'object') {
+      } else if (value !== null && typeof value === 'object' &&
+                 (Array.isArray(value) || Object.getPrototypeOf(value) === Object.prototype)) {
+        // Only recurse into arrays and plain objects. Recursing into Date,
+        // Buffer, Decimal, etc. rebuilds them from their (empty) enumerable
+        // own-properties and corrupts the value into {}.
         masked[key] = maskQueryResults(value)
       } else {
         masked[key] = value
