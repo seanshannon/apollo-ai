@@ -32,7 +32,10 @@ function escapeHtml(value: unknown): string {
  */
 function sanitizeCsvValue(value: unknown): string {
   const stringValue = String(value ?? '')
-  if (/^[=+\-@\t\r]/.test(stringValue)) {
+  // Leave legitimate numbers (incl. negatives like -5 or +3.2) untouched;
+  // only escape when a value both starts with a formula trigger and is not a
+  // plain number, so we neutralize =CMD/-2+3+cmd/@SUM without mangling data.
+  if (/^[=+\-@\t\r]/.test(stringValue) && !/^[+-]?\d+(\.\d+)?$/.test(stringValue)) {
     return `'${stringValue}`
   }
   return stringValue
