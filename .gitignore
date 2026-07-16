@@ -28,3 +28,9 @@ core
 coverage/
 .env
 .env.*
+
+# Local artifacts that must never be committed
+cookies.txt
+*.backup
+*.backup2
+dashboard.html
