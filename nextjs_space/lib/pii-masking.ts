@@ -30,10 +30,11 @@ export function maskEmail(email: string): string {
 }
 
 /**
- * Detects if string contains phone number
+ * Detects if string contains phone number. Digit-boundary guards stop the
+ * pattern from matching inside longer digit runs (card numbers, ids).
  */
 export function containsPhone(text: string): boolean {
-  const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g
+  const phoneRegex = /(?<!\d)(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)/g
   return phoneRegex.test(text)
 }
 
@@ -49,11 +50,28 @@ export function maskPhone(phone: string): string {
 }
 
 /**
+ * Structural SSN validation — filters out the many 9-digit numbers that are
+ * not SSNs (order numbers, ids, ...). SSA rules: area not 000/666/900-999,
+ * group not 00, serial not 0000.
+ */
+export function isLikelySSN(value: string): boolean {
+  const digits = value.replace(/\D/g, '')
+  if (digits.length !== 9) return false
+  const area = parseInt(digits.slice(0, 3), 10)
+  const group = parseInt(digits.slice(3, 5), 10)
+  const serial = parseInt(digits.slice(5), 10)
+  if (area === 0 || area === 666 || area >= 900) return false
+  if (group === 0) return false
+  if (serial === 0) return false
+  return true
+}
+
+/**
  * Detects if string contains SSN
  */
 export function containsSSN(text: string): boolean {
-  const ssnRegex = /\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b/g
-  return ssnRegex.test(text)
+  const matches = text.match(/\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b/g)
+  return !!matches && matches.some(isLikelySSN)
 }
 
 /**
@@ -68,11 +86,32 @@ export function maskSSN(ssn: string): string {
 }
 
 /**
+ * Luhn checksum — real card numbers pass it; random 16-digit ids almost
+ * never do, so masking is limited to plausible card numbers.
+ */
+export function passesLuhn(value: string): boolean {
+  const digits = value.replace(/\D/g, '')
+  if (digits.length < 13) return false
+  let sum = 0
+  let double = false
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let d = digits.charCodeAt(i) - 48
+    if (double) {
+      d *= 2
+      if (d > 9) d -= 9
+    }
+    sum += d
+    double = !double
+  }
+  return sum % 10 === 0
+}
+
+/**
  * Detects if string contains credit card
  */
 export function containsCreditCard(text: string): boolean {
-  const ccRegex = /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g
-  return ccRegex.test(text)
+  const matches = text.match(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g)
+  return !!matches && matches.some(passesLuhn)
 }
 
 /**
@@ -119,17 +158,20 @@ export function maskPII(text: string): { masked: string; detected: string[] } {
   let masked = text
   const detected: string[] = []
 
-  // Mask SSN
+  // Mask SSN — only values that structurally look like real SSNs; a bare
+  // 9-digit order number or id passes through untouched
   if (containsSSN(text)) {
     masked = masked.replace(/\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b/g, (match) => {
+      if (!isLikelySSN(match)) return match
       detected.push('ssn')
       return maskSSN(match)
     })
   }
 
-  // Mask Credit Cards
+  // Mask Credit Cards — only numbers that pass the Luhn checksum
   if (containsCreditCard(text)) {
     masked = masked.replace(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g, (match) => {
+      if (!passesLuhn(match)) return match
       detected.push('credit_card')
       return maskCreditCard(match)
     })
@@ -143,9 +185,9 @@ export function maskPII(text: string): { masked: string; detected: string[] } {
     })
   }
 
-  // Mask Phone Numbers
-  if (containsPhone(text)) {
-    masked = masked.replace(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, (match) => {
+  // Mask Phone Numbers (digit-boundary guards keep longer digit runs intact)
+  if (containsPhone(masked)) {
+    masked = masked.replace(/(?<!\d)(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)/g, (match) => {
       detected.push('phone')
       return maskPhone(match)
     })

@@ -51,6 +51,25 @@ describe('SSN masking', () => {
   it('masks all but the last four digits', () => {
     expect(maskSSN('123-45-6789')).toBe('***-**-6789')
   })
+
+  it('does not flag 9-digit numbers with invalid SSN structure', () => {
+    expect(containsSSN('order 100000000 shipped')).toBe(false) // group 00
+    expect(containsSSN('ref 987654321')).toBe(false) // area 900+
+    expect(containsSSN('id 000123456')).toBe(false) // area 000
+    expect(containsSSN('conf 666123456')).toBe(false) // area 666
+  })
+
+  it('leaves invalid 9-digit numbers unmasked in maskPII', () => {
+    const { masked, detected } = maskPII('order number 987654321')
+    expect(masked).toContain('987654321')
+    expect(detected).not.toContain('ssn')
+  })
+
+  it('still masks structurally valid bare SSNs', () => {
+    const { masked, detected } = maskPII('ssn 123456789')
+    expect(masked).not.toContain('123456789')
+    expect(detected).toContain('ssn')
+  })
 })
 
 describe('credit card masking', () => {
@@ -61,6 +80,13 @@ describe('credit card masking', () => {
 
   it('keeps only the last four digits', () => {
     expect(maskCreditCard('4111 1111 1111 1111')).toBe('****-****-****-1111')
+  })
+
+  it('ignores 16-digit numbers that fail the Luhn checksum', () => {
+    expect(containsCreditCard('tracking 1234 5678 1234 5678')).toBe(false)
+    const { masked, detected } = maskPII('tracking 1234567812345678')
+    expect(masked).toContain('1234567812345678')
+    expect(detected).not.toContain('credit_card')
   })
 })
 
