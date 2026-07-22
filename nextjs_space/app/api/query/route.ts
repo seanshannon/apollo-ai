@@ -9,6 +9,7 @@ import { executeQuery } from '@/lib/database-query-executor'
 import { storeQueryPattern, searchSimilarQueries } from '@/lib/vector-db'
 import { queryRateLimiter } from '@/lib/rate-limit'
 import { getSchemaDocWithFallback } from '@/lib/schema-introspection'
+import { getLLMConfig } from '@/lib/llm-config'
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Allow up to 60 seconds for complex queries
@@ -555,6 +556,8 @@ async function callLLMForSQL(
   prompt: string,
   onProgress: (message: string) => void
 ): Promise<any> {
+  const llm = getLLMConfig()
+
   // AbortController with timeout to prevent hanging requests
   const abortController = new AbortController()
   const timeoutId = setTimeout(() => {
@@ -563,14 +566,14 @@ async function callLLMForSQL(
 
   let response: Response
   try {
-    response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+    response = await fetch(llm.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
+        'Authorization': `Bearer ${llm.apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: llm.model,
         messages: [{ role: 'user', content: prompt }],
         stream: true,
         max_tokens: 3000,  // Increased for reasoning
@@ -610,6 +613,25 @@ async function callLLMForSQL(
   const decoder = new TextDecoder()
   let buffer = ''
   let partialRead = ''
+  let lastProgress = ''
+
+  // Stream REAL progress: surface the model's chain-of-thought
+  // "understanding" text as it is generated, then note when SQL writing
+  // starts, instead of repeating a canned message per chunk.
+  const reportProgress = () => {
+    let message = 'Analyzing query...'
+    const understanding = buffer.match(/"understanding"\s*:\s*"((?:[^"\\]|\\.)*)/)
+    if (understanding && understanding[1]) {
+      message = `Thinking: ${understanding[1].replace(/\\"/g, '"')}`
+    }
+    if (/"sql"\s*:\s*"/.test(buffer)) {
+      message = 'Writing SQL query...'
+    }
+    if (message !== lastProgress) {
+      lastProgress = message
+      onProgress(message)
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -641,7 +663,7 @@ async function callLLMForSQL(
       try {
         const parsed = JSON.parse(data)
         buffer += parsed.choices?.[0]?.delta?.content || ''
-        onProgress('Analyzing query and generating response...')
+        reportProgress()
       } catch {
         // Skip invalid JSON chunks
       }

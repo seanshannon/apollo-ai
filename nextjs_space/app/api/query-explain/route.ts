@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { createAuditLog } from '@/lib/audit'
+import { getLLMConfig } from '@/lib/llm-config'
 
 export const dynamic = "force-dynamic"
 
@@ -44,14 +45,15 @@ export async function POST(request: NextRequest) {
     })
 
     // Call LLM to explain the query
-    const response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+    const llm = getLLMConfig()
+    const response = await fetch(llm.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
+        'Authorization': `Bearer ${llm.apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-mini',
+        model: llm.model,
         messages: [{
           role: 'user',
           content: `You are a helpful database expert. Explain the following SQL query in simple terms that a non-technical person can understand.

@@ -11,8 +11,7 @@ import { authOptions } from '@/lib/auth';
 
 export const maxDuration = 30; // Allow up to 30 seconds for answer generation
 
-const ABACUS_API_KEY = process.env.ABACUSAI_API_KEY;
-const ABACUS_API_URL = 'https://apps.abacus.ai/v1/chat/completions';
+import { getLLMConfig } from '@/lib/llm-config';
 
 export async function POST(request: NextRequest) {
   try {
@@ -134,14 +133,15 @@ Answer:`;
     
     let response;
     try {
-      response = await fetch(ABACUS_API_URL, {
+      const llm = getLLMConfig();
+      response = await fetch(llm.apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${ABACUS_API_KEY}`,
+          'Authorization': `Bearer ${llm.apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-mini',
+          model: llm.model,
           messages: [
             {
               role: 'system',

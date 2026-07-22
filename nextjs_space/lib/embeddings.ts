@@ -4,6 +4,8 @@
  * Generates vector embeddings for semantic search
  */
 
+import { getEmbeddingsConfig } from './llm-config';
+
 export interface EmbeddingResult {
   embedding: number[];
   tokens: number;
@@ -16,15 +18,16 @@ export async function generateEmbedding(
   text: string
 ): Promise<EmbeddingResult> {
   try {
-    const response = await fetch('https://apps.abacus.ai/v1/embeddings', {
+    const cfg = getEmbeddingsConfig();
+    const response = await fetch(cfg.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
+        'Authorization': `Bearer ${cfg.apiKey}`
       },
       body: JSON.stringify({
         input: text,
-        model: 'text-embedding-3-small' // 1536 dimensions, fast and efficient
+        model: cfg.model // 1536 dimensions, fast and efficient
       })
     });
 
@@ -52,15 +55,16 @@ export async function generateEmbeddings(
   texts: string[]
 ): Promise<EmbeddingResult[]> {
   try {
-    const response = await fetch('https://apps.abacus.ai/v1/embeddings', {
+    const cfg = getEmbeddingsConfig();
+    const response = await fetch(cfg.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
+        'Authorization': `Bearer ${cfg.apiKey}`
       },
       body: JSON.stringify({
         input: texts,
-        model: 'text-embedding-3-small'
+        model: cfg.model
       })
     });
 
