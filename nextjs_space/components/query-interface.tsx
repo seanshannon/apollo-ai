@@ -176,6 +176,42 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
     }
   };
 
+  // Run a saved query's stored SQL directly — no LLM round-trip
+  const handleRunSavedQuery = async (sq: SavedQuery) => {
+    setQuery(sq.naturalQuery);
+    setIsLoading(true);
+    setResult(null);
+    setNaturalLanguageAnswer('');
+    onQueryStart?.();
+    try {
+      const res = await fetch('/api/saved-queries/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sq.id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to run saved query');
+      }
+      setResult({
+        success: true,
+        data: data.data,
+        sql: data.sql,
+        explanation: `Re-ran saved query instantly (${data.rowCount} ${data.rowCount === 1 ? 'row' : 'rows'}, ${data.executionTime}ms)`,
+        confidence: data.confidence,
+        suggestions: data.suggestions,
+      });
+      setLastQuery(sq.naturalQuery);
+      setLastSql(data.sql || '');
+      setConversation((prev) => [...prev, { query: sq.naturalQuery, sql: data.sql || '' }].slice(-3));
+      toast.success('Saved query executed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to run saved query');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDeleteSavedQuery = async (id: string) => {
     const previous = savedQueries;
     setSavedQueries((prev) => prev.filter((sq) => sq.id !== id));
@@ -714,11 +750,12 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
                           >
                             <button
                               type="button"
-                              onClick={() => setQuery(sq.naturalQuery)}
+                              onClick={() => handleRunSavedQuery(sq)}
                               className="px-3 py-1.5 hover:scale-105 transition-transform"
-                              aria-label={`Load saved query: ${sq.name}`}
+                              aria-label={`Run saved query instantly: ${sq.name}`}
+                              title="Run instantly (uses the stored SQL, no AI translation)"
                             >
-                              ★ {sq.name}
+                              ⚡ {sq.name}
                             </button>
                             <button
                               type="button"
