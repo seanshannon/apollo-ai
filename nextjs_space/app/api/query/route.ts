@@ -5,7 +5,9 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { maskQueryResults, maskPII } from '@/lib/pii-masking'
 import { createAuditLog } from '@/lib/audit'
-import { executeQuery } from '@/lib/database-query-executor'
+import { executeQuery, ExternalQueryTarget } from '@/lib/database-query-executor'
+import { DATABASE_TABLE_ALLOWLISTS } from '@/lib/sql-validator'
+import { getAuthorizedConnection, getExternalSchema } from '@/lib/external-db'
 import { storeQueryPattern, searchSimilarQueries } from '@/lib/vector-db'
 import { queryRateLimiter } from '@/lib/rate-limit'
 import { getSchemaDocWithFallback } from '@/lib/schema-introspection'
@@ -295,19 +297,38 @@ export async function POST(request: NextRequest) {
         const encoder = new TextEncoder()
         
         try {
-          // Determine database type and get appropriate configuration
-          const dbConfig = getDatabaseConfig(databaseId)
-
-          // Prefer a live-introspected schema document (columns, enums, FKs,
-          // sample values straight from the catalog); the hand-written static
-          // text remains as a fallback if introspection fails
-          dbConfig.schema = await getSchemaDocWithFallback(databaseId, dbConfig.schema)
-          
           const sendProgress = (message: string) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
               status: 'processing',
               message
             })}\n\n`))
+          }
+
+          // Determine database type and get appropriate configuration
+          const dbConfig = getDatabaseConfig(databaseId)
+
+          // Two kinds of target: a built-in demo database, or a stored
+          // external connection (databaseId is then the connection id)
+          let externalTarget: ExternalQueryTarget | undefined
+          if (DATABASE_TABLE_ALLOWLISTS[databaseId]) {
+            // Prefer a live-introspected schema document (columns, enums, FKs,
+            // sample values straight from the catalog); the hand-written static
+            // text remains as a fallback if introspection fails
+            dbConfig.schema = await getSchemaDocWithFallback(databaseId, dbConfig.schema)
+          } else {
+            sendProgress('Connecting to your database...')
+            const externalConn = await getAuthorizedConnection(databaseId, organizationId)
+            if (!externalConn) {
+              throw new Error('Database connection not found or not accessible from your organization')
+            }
+            const externalSchema = await getExternalSchema(databaseId, organizationId)
+            externalTarget = {
+              connectionId: databaseId,
+              organizationId,
+              allowlist: externalSchema.allowlist,
+              label: externalConn.name,
+            }
+            dbConfig.schema = externalSchema.promptDoc
           }
 
           // Similar successful queries from the vector DB improve generation;
@@ -371,7 +392,7 @@ export async function POST(request: NextRequest) {
             }
 
             try {
-              queryResult = await executeQuery(databaseId, finalResult.sql, query)
+              queryResult = await executeQuery(databaseId, finalResult.sql, query, externalTarget)
               // Only SQL that actually executed gets cached — previously
               // failing SQL could be cached for an hour
               cacheSQL(query, databaseId, finalResult.sql)

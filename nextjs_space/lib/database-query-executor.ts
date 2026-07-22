@@ -10,9 +10,23 @@
  */
 
 import { createHash } from 'crypto'
-import { validateGeneratedSQL, sanitizeSQLForLogging } from './sql-validator'
+import { validateGeneratedSQL, validateSQLAgainstAllowlist, sanitizeSQLForLogging } from './sql-validator'
 import { executeGeneratedSQL, GeneratedSQLResult } from './query-db'
+import { executeExternalSQL } from './external-db'
 import { cachedQuery } from './db-optimization'
+
+/**
+ * When set, the query targets a user-registered external connection instead
+ * of a built-in demo database. The allowlist comes from schema introspection
+ * of that connection.
+ */
+export interface ExternalQueryTarget {
+  connectionId: string
+  organizationId: string
+  allowlist: readonly string[]
+  /** Human-readable name used in error messages */
+  label: string
+}
 
 export interface QueryExecutionResult {
   data: any[]
@@ -40,7 +54,8 @@ export interface VisualizationConfig {
 export async function executeQuery(
   databaseId: string,
   sql: string,
-  naturalQuery: string
+  naturalQuery: string,
+  external?: ExternalQueryTarget
 ): Promise<QueryExecutionResult> {
   const startTime = Date.now()
 
@@ -50,8 +65,10 @@ export async function executeQuery(
     }
 
     // SECURITY: parse the SQL and enforce the table allowlist for this
-    // database before anything touches a connection
-    const validation = validateGeneratedSQL(sql, databaseId)
+    // target before anything touches a connection
+    const validation = external
+      ? validateSQLAgainstAllowlist(sql, external.allowlist, external.label)
+      : validateGeneratedSQL(sql, databaseId)
     if (!validation.valid) {
       console.error('SQL Validation Failed:', validation.error)
       console.error('Rejected SQL:', sanitizeSQLForLogging(sql))
@@ -65,7 +82,9 @@ export async function executeQuery(
     // Cache key uses the full SQL hash — prefixes are collision-prone
     const cacheKey = `query:${databaseId}:${createHash('sha256').update(sql).digest('hex')}`
     const execResult = await cachedQuery<GeneratedSQLResult>(sql, cacheKey, undefined, () =>
-      executeGeneratedSQL(sql)
+      external
+        ? executeExternalSQL(external.connectionId, external.organizationId, sql)
+        : executeGeneratedSQL(sql)
     )
 
     const result = execResult.rows

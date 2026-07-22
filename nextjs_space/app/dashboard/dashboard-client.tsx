@@ -23,6 +23,12 @@ interface DashboardClientProps {
   };
 }
 
+interface ExternalConnection {
+  id: string;
+  name: string;
+  type: string;
+}
+
 export function DashboardClient({ user }: DashboardClientProps) {
   const router = useRouter();
   const { t } = useTranslation();
@@ -30,6 +36,35 @@ export function DashboardClient({ user }: DashboardClientProps) {
   const [selectedDatabase, setSelectedDatabase] = useState('sales');
   const [hasRunQuery, setHasRunQuery] = useState(false);
   const [isLandingState, setIsLandingState] = useState(true);
+  const [connections, setConnections] = useState<ExternalConnection[]>([]);
+
+  // Load the user's registered external database connections so they appear
+  // in the selector alongside the built-in demo databases
+  useEffect(() => {
+    let cancelled = false;
+    async function loadConnections() {
+      try {
+        const orgRes = await fetch('/api/organizations');
+        if (!orgRes.ok) return;
+        const orgData = await orgRes.json();
+        const orgId = orgData.organizations?.[0]?.id;
+        if (!orgId) return;
+
+        const connRes = await fetch(`/api/database-connections?organizationId=${encodeURIComponent(orgId)}`);
+        if (!connRes.ok) return;
+        const connData = await connRes.json();
+        if (!cancelled && Array.isArray(connData.connections)) {
+          setConnections(connData.connections);
+        }
+      } catch {
+        // Selector still works with demo databases only
+      }
+    }
+    loadConnections();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const starImageUrl = 'https://s3-us-west-2.amazonaws.com/s.cdpn.io/1231630/stars.png';
 
@@ -178,6 +213,15 @@ export function DashboardClient({ user }: DashboardClientProps) {
                         <SelectItem value="inventory" className="text-terminal-green font-share-tech hover:bg-terminal-green/20">INVENTORY DATABASE</SelectItem>
                         <SelectItem value="finance" className="text-terminal-green font-share-tech hover:bg-terminal-green/20">FINANCE DATABASE</SelectItem>
                         <SelectItem value="customer_support" className="text-terminal-green font-share-tech hover:bg-terminal-green/20">CUSTOMER SUPPORT DATABASE</SelectItem>
+                        {connections.map((conn) => (
+                          <SelectItem
+                            key={conn.id}
+                            value={conn.id}
+                            className="text-terminal-green font-share-tech hover:bg-terminal-green/20"
+                          >
+                            {conn.name.toUpperCase()} [LIVE]
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     {hasRunQuery && (

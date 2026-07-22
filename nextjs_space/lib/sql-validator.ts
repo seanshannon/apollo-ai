@@ -153,14 +153,27 @@ function walk(node: unknown, state: WalkState): void {
  * Fail-closed: parse errors and unknown databases are rejected.
  */
 export function validateGeneratedSQL(sql: string, databaseId: string): SQLValidationResult {
-  if (!sql || sql.trim().length === 0) {
-    return { valid: false, error: 'Empty SQL query' }
-  }
-
   const allowlist = DATABASE_TABLE_ALLOWLISTS[databaseId]
   if (!allowlist) {
     return { valid: false, error: `Unknown database: ${databaseId}` }
   }
+  return validateSQLAgainstAllowlist(sql, allowlist, databaseId)
+}
+
+/**
+ * Core validation against an explicit table allowlist. Used directly for
+ * external connections, where the allowlist is the set of tables discovered
+ * by schema introspection.
+ */
+export function validateSQLAgainstAllowlist(
+  sql: string,
+  allowlistTables: readonly string[],
+  label: string
+): SQLValidationResult {
+  if (!sql || sql.trim().length === 0) {
+    return { valid: false, error: 'Empty SQL query' }
+  }
+  const allowlist = allowlistTables
 
   let statements
   try {
@@ -197,7 +210,7 @@ export function validateGeneratedSQL(sql: string, databaseId: string): SQLValida
     }
   }
 
-  const allowed = new Set(allowlist)
+  const allowed = new Set(allowlist.map(t => t.toLowerCase()))
   const referenced = new Set<string>()
   for (const table of state.tables) {
     if (table.schema && table.schema !== 'public') {
@@ -205,7 +218,7 @@ export function validateGeneratedSQL(sql: string, databaseId: string): SQLValida
     }
     if (state.cteNames.has(table.name)) continue
     if (!allowed.has(table.name)) {
-      return { valid: false, error: `Table "${table.name}" is not accessible from the ${databaseId} database` }
+      return { valid: false, error: `Table "${table.name}" is not accessible from the ${label} database` }
     }
     referenced.add(table.name)
   }

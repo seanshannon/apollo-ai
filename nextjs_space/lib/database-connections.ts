@@ -161,26 +161,25 @@ export async function getConnection(connectionId: string): Promise<DatabaseConne
 }
 
 /**
- * Test database connection
+ * Test database connection — really connects and runs a probe query
+ * (PostgreSQL supported; other engines report clearly that they aren't yet).
  */
 export async function testConnection(config: ConnectionConfig): Promise<boolean> {
-  try {
-    // Validate required fields
-    if (!config.host || !config.database || !config.username) {
-      throw new Error('Missing required connection parameters')
-    }
-
-    // In production, you would actually test the connection here
-    // For example:
-    // - For PostgreSQL: const { Client } = require('pg')
-    // - For MySQL: const mysql = require('mysql2/promise')
-    // - For Oracle: const oracledb = require('oracledb')
-    
-    // For now, just validate config structure
-    return true
-  } catch (error) {
-    throw new Error(`Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  if (!config.host || !config.database || !config.username) {
+    throw new Error('Missing required connection parameters')
   }
+
+  const { testExternalConnection } = await import('./external-db')
+  await testExternalConnection({
+    type: config.type,
+    host: config.host,
+    port: config.port,
+    database: config.database,
+    username: config.username,
+    password: config.password,
+    ssl: config.ssl,
+  })
+  return true
 }
 
 /**
