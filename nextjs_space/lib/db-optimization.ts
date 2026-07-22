@@ -63,11 +63,17 @@ function getCacheTier(query: string): {
 
 /**
  * Execute a query with intelligent multi-tier caching
+ *
+ * @param executor Optional function that actually runs the query. Generated
+ *   SQL must pass an executor bound to the restricted connection
+ *   (lib/query-db.ts); the default runs on the main Prisma client and is only
+ *   appropriate for trusted, application-authored SQL.
  */
 export async function cachedQuery<T = any>(
   query: string,
   cacheKey?: string,
-  ttl?: number
+  ttl?: number,
+  executor?: () => Promise<T>
 ): Promise<T> {
   const key = cacheKey || query;
   
@@ -102,7 +108,9 @@ export async function cachedQuery<T = any>(
   // Execute query
   console.log(`[DB Cache] MISS - Executing: ${key.substring(0, 50)}...`);
   const startTime = performance.now();
-  const result = await prisma.$queryRawUnsafe<T>(query);
+  const result = executor
+    ? await executor()
+    : ((await prisma.$queryRawUnsafe(query)) as T);
   const duration = performance.now() - startTime;
   
   // Log slow queries
