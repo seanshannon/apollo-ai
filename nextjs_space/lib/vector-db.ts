@@ -8,16 +8,21 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import fs from 'fs';
 import { generateEmbedding } from './embeddings';
 
-// Load Pinecone API key from auth secrets
+// Load Pinecone API key from the environment, with a fallback to the legacy
+// Abacus-hosted secrets file for that deployment environment only
 function getPineconeApiKey(): string {
+  if (process.env.PINECONE_API_KEY) {
+    return process.env.PINECONE_API_KEY;
+  }
   try {
     const secretsPath = '/home/ubuntu/.config/abacusai_auth_secrets.json';
     const secrets = JSON.parse(fs.readFileSync(secretsPath, 'utf-8'));
-    return secrets.pinecone?.secrets?.api_key?.value || '';
-  } catch (error) {
-    console.error('Error loading Pinecone API key:', error);
-    throw new Error('Pinecone API key not found');
+    const key = secrets.pinecone?.secrets?.api_key?.value;
+    if (key) return key;
+  } catch {
+    // fall through to the error below
   }
+  throw new Error('Pinecone API key not found — set PINECONE_API_KEY');
 }
 
 // Initialize Pinecone client

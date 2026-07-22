@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nextjs_space
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: apollo
+          POSTGRES_PASSWORD: apollo_ci
+          POSTGRES_DB: apollo_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://apollo:apollo_ci@localhost:5432/apollo_ci
+      ENCRYPTION_KEY: ci-only-key-0123456789abcdef0123456789abcdef
+      NEXTAUTH_SECRET: ci-only-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: nextjs_space/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Push schema to test database
+        run: npx prisma db push --skip-generate
+
+      - name: Run tests
+        run: npm test

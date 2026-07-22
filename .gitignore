@@ -28,3 +28,10 @@ core
 coverage/
 .env
 .env.*
+
+# Local run artifacts
+.logs/
+.deploy/
+*.backup
+next.config.js.backup*
+cookies.txt
