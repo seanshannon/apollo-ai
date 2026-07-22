@@ -36,6 +36,7 @@ model User {
   zkDbConnections     ZKDatabaseConnection[]
   memberships         OrganizationMember[]
   ownedOrgs           Organization[]         @relation("OrganizationOwner")
+  savedQueries        SavedQuery[]
 }
 
 model Organization {
@@ -52,7 +53,8 @@ model Organization {
   dbConnections   ZKDatabaseConnection[]
   queryHistory    QueryHistory[]
   auditLogs       AuditLog[]
-  
+  savedQueries    SavedQuery[]
+
   @@index([ownerId])
   @@map("organizations")
 }
@@ -147,6 +149,24 @@ model QueryHistory {
   
   @@index([organizationId])
   @@index([userId])
+}
+
+model SavedQuery {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  name           String
+  naturalQuery   String
+  databaseId     String       // demo database id or ZKDatabaseConnection id
+  generatedSql   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, databaseId])
+  @@index([userId])
+  @@map("saved_queries")
 }
 
 model AuditLog {

@@ -25,8 +25,17 @@ import {
   FileText,
   BarChart3,
   Mic,
-  MicOff
+  MicOff,
+  BookmarkPlus,
+  X
 } from 'lucide-react';
+
+interface SavedQuery {
+  id: string;
+  name: string;
+  naturalQuery: string;
+  databaseId: string;
+}
 
 interface QueryResult {
   success: boolean;
@@ -105,6 +114,8 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
   const [naturalLanguageAnswer, setNaturalLanguageAnswer] = useState<string>('');
   const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false);
   const [resultsExpanded, setResultsExpanded] = useState(false);
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
   const recognitionRef = useRef<any>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
@@ -119,6 +130,59 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
     setResultsExpanded(false);
     onReset?.();
   }, [databaseId, onReset]);
+
+  // Load saved queries for the selected database
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/saved-queries?databaseId=${encodeURIComponent(databaseId)}`)
+      .then((res) => (res.ok ? res.json() : { savedQueries: [] }))
+      .then((data) => {
+        if (!cancelled) setSavedQueries(data.savedQueries ?? []);
+      })
+      .catch(() => {
+        // Saved queries are a convenience; the interface works without them
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [databaseId]);
+
+  const handleSaveQuery = async () => {
+    const naturalQuery = lastQuery || query;
+    if (!naturalQuery.trim()) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/saved-queries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          naturalQuery,
+          databaseId,
+          generatedSql: result?.sql || lastSql || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      const data = await res.json();
+      setSavedQueries((prev) => [data.savedQuery, ...prev]);
+      toast.success('Query saved — it will appear under "Saved queries"');
+    } catch {
+      toast.error('Could not save the query');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteSavedQuery = async (id: string) => {
+    const previous = savedQueries;
+    setSavedQueries((prev) => prev.filter((sq) => sq.id !== id));
+    try {
+      const res = await fetch(`/api/saved-queries?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('delete failed');
+    } catch {
+      setSavedQueries(previous);
+      toast.error('Could not delete the saved query');
+    }
+  };
 
   // Announce query results to screen readers
   useEffect(() => {
@@ -628,6 +692,39 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
                       </button>
                     ))}
                   </div>
+
+                  {/* Saved Queries */}
+                  {savedQueries.length > 0 && (
+                    <>
+                      <p className="text-xs text-muted-foreground font-medium mt-3">Saved queries:</p>
+                      <div className="flex flex-wrap gap-2" role="list" aria-label="Saved queries">
+                        {savedQueries.map((sq) => (
+                          <span
+                            key={sq.id}
+                            role="listitem"
+                            className="inline-flex items-center gap-1 text-xs rounded-md bg-secondary/40 hover:bg-secondary/60 border border-primary/40 text-primary transition-all"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setQuery(sq.naturalQuery)}
+                              className="px-3 py-1.5 hover:scale-105 transition-transform"
+                              aria-label={`Load saved query: ${sq.name}`}
+                            >
+                              ★ {sq.name}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSavedQuery(sq.id)}
+                              className="pr-2 opacity-50 hover:opacity-100"
+                              aria-label={`Delete saved query: ${sq.name}`}
+                            >
+                              <X className="w-3 h-3" aria-hidden="true" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -721,6 +818,17 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
                 >
                   <Share2 className="w-4 h-4" aria-hidden="true" />
                   Share
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSaveQuery}
+                  disabled={isSaving}
+                  className="gap-2 h-9 px-4 text-sm font-semibold border-2 border-border hover:border-primary hover-glow"
+                  aria-label="Save this query for later re-use"
+                >
+                  <BookmarkPlus className="w-4 h-4" aria-hidden="true" />
+                  {isSaving ? 'Saving...' : 'Save Query'}
                 </Button>
               </>
             )}
