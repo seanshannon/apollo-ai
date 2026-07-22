@@ -30,6 +30,7 @@ const customJestConfig: Config = {
   // percentages over the whole app were previously aspirational (the old
   // suites never imported application code).
   coverageThreshold: {
+    global: {},
     './lib/sql-validator.ts': {
       branches: 80,
       functions: 90,

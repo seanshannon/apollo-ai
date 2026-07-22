@@ -1,7 +1,15 @@
 
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazily constructed: instantiating Resend without an API key throws, which
+// previously crashed the build/startup in any environment without the key
+let resendClient: Resend | null = null
+function getResend(): Resend {
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY)
+  }
+  return resendClient
+}
 
 interface WelcomeEmailProps {
   firstName: string
@@ -25,7 +33,7 @@ export async function sendWelcomeEmail({
 
     console.log(`Attempting to send welcome email to ${email}...`)
     
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: 'Picard.ai <onboarding@resend.dev>',
       to: [email],
       subject: 'Welcome to Picard.ai - Your NLP Database Assistant',

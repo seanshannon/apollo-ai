@@ -42,6 +42,13 @@ function getCachedSQL(query: string, databaseId: string): string | null {
 }
 
 /**
+ * Remove a cached SQL entry (used when cached SQL fails to execute)
+ */
+function deleteCachedSQL(query: string, databaseId: string): void {
+  queryCache.delete(`${query.toLowerCase().trim()}:${databaseId}`);
+}
+
+/**
  * Cache SQL for a query
  */
 function cacheSQL(query: string, databaseId: string, sql: string): void {
@@ -295,172 +302,92 @@ export async function POST(request: NextRequest) {
           // text remains as a fallback if introspection fails
           dbConfig.schema = await getSchemaDocWithFallback(databaseId, dbConfig.schema)
           
-          // Check cache first for consistent results
-          const cachedSQL = getCachedSQL(query, databaseId);
-          let finalResult: any;
-          
-          if (cachedSQL) {
-            // Use cached SQL for consistent results
-            if (process.env.NODE_ENV === 'development') {
-              console.log('✅ Using cached SQL (query hash:', query.substring(0, 20) + '...)');
-            }
+          const sendProgress = (message: string) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
               status: 'processing',
-              message: 'Using cached query translation...'
+              message
             })}\n\n`))
-            
-            finalResult = {
-              success: true,
-              sql: cachedSQL,
-              summary: 'Query translated successfully (cached)'
-            };
-          } else {
-            // Retrieve similar successful queries from vector database to improve SQL generation
-            let similarQueries: any[] = [];
-            try {
-              similarQueries = await searchSimilarQueries(
+          }
+
+          // Similar successful queries from the vector DB improve generation;
+          // fetched lazily and at most once per request
+          let similarQueriesPromise: Promise<any[]> | null = null
+          const getSimilarQueries = (): Promise<any[]> => {
+            if (!similarQueriesPromise) {
+              similarQueriesPromise = searchSimilarQueries(
                 query,
                 5, // Get top 5 similar queries
                 {
                   database: { $eq: databaseId },
                   success: { $eq: true }
                 }
-              );
-              console.log(`📚 Found ${similarQueries.length} similar successful queries for context`);
-            } catch (error) {
-              console.error('Failed to retrieve similar queries from vector DB:', error);
-              // Continue without similar queries if vector DB fails
+              ).then(results => {
+                console.log(`📚 Found ${results.length} similar successful queries for context`)
+                return results
+              }).catch(error => {
+                console.error('Failed to retrieve similar queries from vector DB:', error)
+                return [] // Continue without similar queries if vector DB fails
+              })
             }
-            
-            // Call LLM API to convert natural language to database-specific query
-            console.log('🔄 Generating new SQL translation');
-            
-            // Create an AbortController with timeout to prevent hanging requests
-            const abortController = new AbortController();
-            const timeoutId = setTimeout(() => {
-              abortController.abort();
-            }, 50000); // 50 second timeout
-            
-            let response;
+            return similarQueriesPromise
+          }
+
+          // SELF-CORRECTION LOOP: if the generated SQL fails to validate or
+          // execute, feed the failed SQL and the database error back to the
+          // LLM for one corrected attempt before giving up.
+          let cachedSQL = getCachedSQL(query, databaseId)
+          let finalResult: any
+          let queryResult: any = null
+          let retryFeedback: { failedSql: string; error: string } | undefined
+          const MAX_ATTEMPTS = 2
+
+          for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            if (cachedSQL && attempt === 1) {
+              // Use cached SQL for consistent results
+              if (process.env.NODE_ENV === 'development') {
+                console.log('✅ Using cached SQL (query hash:', query.substring(0, 20) + '...)');
+              }
+              sendProgress('Using cached query translation...')
+              finalResult = {
+                success: true,
+                sql: cachedSQL,
+                summary: 'Query translated successfully (cached)'
+              }
+            } else {
+              console.log(attempt === 1 ? '🔄 Generating new SQL translation' : '🔁 Regenerating SQL after failure')
+              sendProgress(attempt === 1
+                ? 'Converting natural language to SQL...'
+                : 'First attempt failed — adjusting the query...')
+              const similarQueries = await getSimilarQueries()
+              const prompt = generateQueryPrompt(query, databaseId, dbConfig, context, similarQueries, retryFeedback)
+              finalResult = await callLLMForSQL(prompt, sendProgress)
+            }
+
+            if (!finalResult.success || !finalResult.sql) {
+              // Generation-level failure (LLM said it can't, or unparseable
+              // response) — surface it through the standard error path
+              throw new Error(finalResult?.error || 'No SQL query provided by the LLM')
+            }
+
             try {
-              response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
-                },
-                body: JSON.stringify({
-                  model: 'gpt-4.1-mini',
-                  messages: [{
-                    role: 'user',
-                    content: generateQueryPrompt(query, databaseId, dbConfig, context, similarQueries)
-                  }],
-                  stream: true,
-                  max_tokens: 3000,  // Increased for reasoning
-                  temperature: 0,  // Deterministic SQL generation - same query = same SQL
-                  response_format: { type: "json_object" }
-                }),
-                signal: abortController.signal,
-              });
-            } catch (fetchError: any) {
-              clearTimeout(timeoutId);
-              
-              // Handle specific error types
-              if (fetchError.name === 'AbortError') {
-                console.error('LLM API request timed out after 50 seconds');
-                throw new Error('Query processing timed out. Please try a simpler query or try again later.');
+              queryResult = await executeQuery(databaseId, finalResult.sql, query)
+              // Only SQL that actually executed gets cached — previously
+              // failing SQL could be cached for an hour
+              cacheSQL(query, databaseId, finalResult.sql)
+              break
+            } catch (execError) {
+              const execMessage = execError instanceof Error ? execError.message : String(execError)
+              // Never serve a failing cached translation again
+              deleteCachedSQL(query, databaseId)
+              cachedSQL = null
+
+              if (attempt >= MAX_ATTEMPTS) {
+                throw execError
               }
-              
-              if (fetchError.cause?.code === 'ECONNREFUSED') {
-                console.error('Connection to LLM API refused');
-                throw new Error('Unable to connect to AI service. Please check your network connection and try again.');
-              }
-              
-              console.error('LLM API fetch error:', fetchError);
-              throw new Error(`Failed to connect to AI service: ${fetchError.message}`);
-            }
-            
-            clearTimeout(timeoutId);
-
-            // Check if the API call was successful
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error('LLM API error:', response.status, errorText);
-              throw new Error(`AI service error (${response.status}): ${errorText.substring(0, 200)}`);
-            }
-
-            const reader = response.body?.getReader()
-            
-            if (!reader) {
-              throw new Error('No response body from LLM API');
-            }
-            const decoder = new TextDecoder()
-            let buffer = ''
-            let partialRead = ''
-
-            // Send progress updates
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
-              status: 'processing',
-              message: 'Converting natural language to SQL...'
-            })}\n\n`))
-
-            while (true) {
-              const { done, value} = await reader?.read() || { done: true, value: undefined }
-              if (done) break
-
-              partialRead += decoder.decode(value, { stream: true })
-              let lines = partialRead.split('\n')
-              partialRead = lines.pop() || ''
-
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const data = line.slice(6)
-                  if (data === '[DONE]') {
-                    // Parse the complete JSON response
-                    try {
-                      finalResult = JSON.parse(buffer)
-                      
-                      // Normalize reasoning confidence from 0-100 to 0-1 range
-                      if (finalResult.reasoning?.confidence !== undefined) {
-                        finalResult.reasoning.confidence = finalResult.reasoning.confidence / 100;
-                      }
-                    } catch (parseError) {
-                      console.error('JSON parse error:', parseError)
-                      console.error('Buffer content:', buffer)
-                      finalResult = { 
-                        success: false, 
-                        error: 'Failed to parse AI response' 
-                      }
-                    }
-                    
-                    // Cache the generated SQL for future queries
-                    if (finalResult.success && finalResult.sql) {
-                      cacheSQL(query, databaseId, finalResult.sql);
-                      console.log('✅ Cached SQL for future use');
-                    }
-                    break;
-                  }
-                  
-                  try {
-                    const parsed = JSON.parse(data)
-                    buffer += parsed.choices?.[0]?.delta?.content || ''
-                    
-                    // Send progress update
-                    const progressData = JSON.stringify({
-                      status: 'processing',
-                      message: 'Analyzing query and generating response...'
-                    })
-                    controller.enqueue(encoder.encode(`data: ${progressData}\n\n`))
-                  } catch (e) {
-                    // Skip invalid JSON chunks
-                  }
-                }
-              }
+              console.warn(`Attempt ${attempt} failed, retrying with error feedback:`, execMessage)
+              retryFeedback = { failedSql: finalResult.sql, error: execMessage }
             }
           }
-          
-          // Execute the query against real database (applies to both cached and newly generated SQL)
-          const queryResult = await executeQuery(databaseId, finalResult.sql || '', query)
 
                   // Convert BigInt values to strings for JSON serialization (for all nested objects)
                   const serializableQueryResult = convertBigIntToString(queryResult)
@@ -617,6 +544,114 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Call the LLM to translate natural language into SQL.
+ *
+ * Streams the completion (reporting progress via onProgress) and returns the
+ * parsed JSON result: { success, sql, summary, reasoning, error }. Network
+ * errors, timeouts, and non-OK responses throw; an unparseable completion
+ * returns { success: false }.
+ */
+async function callLLMForSQL(
+  prompt: string,
+  onProgress: (message: string) => void
+): Promise<any> {
+  // AbortController with timeout to prevent hanging requests
+  const abortController = new AbortController()
+  const timeoutId = setTimeout(() => {
+    abortController.abort()
+  }, 50000) // 50 second timeout
+
+  let response: Response
+  try {
+    response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        messages: [{ role: 'user', content: prompt }],
+        stream: true,
+        max_tokens: 3000,  // Increased for reasoning
+        temperature: 0,  // Deterministic SQL generation - same query = same SQL
+        response_format: { type: "json_object" }
+      }),
+      signal: abortController.signal,
+    })
+  } catch (fetchError: any) {
+    clearTimeout(timeoutId)
+
+    if (fetchError.name === 'AbortError') {
+      console.error('LLM API request timed out after 50 seconds')
+      throw new Error('Query processing timed out. Please try a simpler query or try again later.')
+    }
+    if (fetchError.cause?.code === 'ECONNREFUSED') {
+      console.error('Connection to LLM API refused')
+      throw new Error('Unable to connect to AI service. Please check your network connection and try again.')
+    }
+    console.error('LLM API fetch error:', fetchError)
+    throw new Error(`Failed to connect to AI service: ${fetchError.message}`)
+  }
+
+  clearTimeout(timeoutId)
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    console.error('LLM API error:', response.status, errorText)
+    throw new Error(`AI service error (${response.status}): ${errorText.substring(0, 200)}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('No response body from LLM API')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let partialRead = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    partialRead += decoder.decode(value, { stream: true })
+    const lines = partialRead.split('\n')
+    partialRead = lines.pop() || ''
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6)
+
+      if (data === '[DONE]') {
+        try {
+          const result = JSON.parse(buffer)
+          // Normalize reasoning confidence from 0-100 to 0-1 range
+          if (result.reasoning?.confidence !== undefined) {
+            result.reasoning.confidence = result.reasoning.confidence / 100
+          }
+          return result
+        } catch (parseError) {
+          console.error('JSON parse error:', parseError)
+          console.error('Buffer content:', buffer)
+          return { success: false, error: 'Failed to parse AI response' }
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(data)
+        buffer += parsed.choices?.[0]?.delta?.content || ''
+        onProgress('Analyzing query and generating response...')
+      } catch {
+        // Skip invalid JSON chunks
+      }
+    }
+  }
+
+  return { success: false, error: 'AI response ended unexpectedly' }
+}
+
+/**
  * Database configuration interface
  */
 interface DatabaseConfig {
@@ -653,11 +688,12 @@ function getDatabaseConfig(databaseId: string): DatabaseConfig {
  * Generate database-specific query prompt with similar query patterns and chain-of-thought reasoning
  */
 function generateQueryPrompt(
-  query: string, 
-  databaseId: string, 
-  dbConfig: DatabaseConfig, 
+  query: string,
+  databaseId: string,
+  dbConfig: DatabaseConfig,
   context?: { previousQuery: string; previousSql: string },
-  similarQueries?: any[]
+  similarQueries?: any[],
+  retryFeedback?: { failedSql: string; error: string }
 ): string {
   const databaseInstructions = {
     postgresql: {
@@ -816,6 +852,24 @@ function generateQueryPrompt(
   const dbType = dbConfig.type
   const instructions = databaseInstructions[dbType] || databaseInstructions.postgresql
 
+  let retrySection = ''
+  if (retryFeedback) {
+    retrySection = `
+
+⚠️ PREVIOUS ATTEMPT FAILED — YOU MUST FIX IT:
+Your previous SQL:
+${retryFeedback.failedSql}
+
+The database rejected it with this error:
+"${retryFeedback.error}"
+
+Analyze the error carefully. Common causes: wrong column or table name, an
+inaccessible table, incorrect enum value casing, a type mismatch, or invalid
+syntax for this database. Generate a CORRECTED query that resolves this exact
+error. Do not repeat the same mistake.
+`
+  }
+
   let contextSection = ''
   if (context?.previousQuery && context?.previousSql) {
     contextSection = `
@@ -876,6 +930,7 @@ Database Type: ${dbType.toUpperCase()}
 
 Available tables and schemas:
 ${dbConfig.schema}
+${retrySection}
 ${contextSection}
 ${similarQueriesSection}
 
