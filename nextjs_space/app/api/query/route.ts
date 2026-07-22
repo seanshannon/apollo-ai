@@ -179,8 +179,15 @@ const MAX_DATABASE_ID_LENGTH = 100;
 const MAX_CONTEXT_LENGTH = 2000;
 
 export async function POST(request: NextRequest) {
-  // SECURITY: Rate limiting to prevent API abuse
-  const rateLimitResult = queryRateLimiter(request);
+  const session: any = await getServerSession(authOptions)
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // SECURITY: Rate limiting to prevent API abuse — keyed by the
+  // authenticated user (IP headers are spoofable)
+  const rateLimitResult = await queryRateLimiter(request, session.user.id);
   if (rateLimitResult.blocked) {
     return NextResponse.json(
       { 
@@ -197,12 +204,6 @@ export async function POST(request: NextRequest) {
         }
       }
     );
-  }
-
-  const session: any = await getServerSession(authOptions)
-  
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   try {
