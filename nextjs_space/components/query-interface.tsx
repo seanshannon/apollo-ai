@@ -111,6 +111,9 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
   const [isListening, setIsListening] = useState(false);
   const [lastQuery, setLastQuery] = useState<string>('');
   const [lastSql, setLastSql] = useState<string>('');
+  // Rolling conversation history (last 3 successful turns) so follow-up
+  // questions can reference more than just the immediately previous query
+  const [conversation, setConversation] = useState<{ query: string; sql: string }[]>([]);
   const [naturalLanguageAnswer, setNaturalLanguageAnswer] = useState<string>('');
   const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false);
   const [resultsExpanded, setResultsExpanded] = useState(false);
@@ -127,6 +130,7 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
     setNaturalLanguageAnswer('');
     setLastQuery('');
     setLastSql('');
+    setConversation([]);
     setResultsExpanded(false);
     onReset?.();
   }, [databaseId, onReset]);
@@ -381,9 +385,12 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          query, 
+          query,
           databaseId,
-          context: lastQuery ? {
+          context: conversation.length > 0 ? {
+            // Full recent history for multi-turn follow-ups...
+            turns: conversation,
+            // ...plus the single-turn shape for backward compatibility
             previousQuery: lastQuery,
             previousSql: lastSql
           } : undefined
@@ -468,6 +475,7 @@ export function QueryInterface({ databaseId = 'default', onQueryStart, onReset }
                   // Save this query and SQL as context for the next query
                   setLastQuery(query);
                   setLastSql(result.sql || '');
+                  setConversation((prev) => [...prev, { query, sql: result.sql || '' }].slice(-3));
                   
                   toast.success('Query executed successfully!');
                   setShouldClearOnFocus(true); // Enable clear on next focus

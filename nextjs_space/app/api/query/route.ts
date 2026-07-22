@@ -176,7 +176,8 @@ function generateNextSteps(query: string, data: any[]): any[] {
 // Security limits for input validation
 const MAX_QUERY_LENGTH = 1000;
 const MAX_DATABASE_ID_LENGTH = 100;
-const MAX_CONTEXT_LENGTH = 2000;
+const MAX_CONTEXT_TURNS = 3;
+const MAX_CONTEXT_SQL_LENGTH = 5000;
 
 export async function POST(request: NextRequest) {
   const session: any = await getServerSession(authOptions)
@@ -228,10 +229,35 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    if (context && context.length > MAX_CONTEXT_LENGTH) {
-      return NextResponse.json({ 
-        error: `Context too long. Maximum ${MAX_CONTEXT_LENGTH} characters allowed.` 
-      }, { status: 400 })
+    // Validate conversational context: bounded number of turns, bounded sizes
+    // (the old check measured .length on an object, which never fired)
+    if (context) {
+      if (typeof context !== 'object') {
+        return NextResponse.json({ error: 'Invalid context format' }, { status: 400 })
+      }
+      if (context.turns !== undefined) {
+        if (!Array.isArray(context.turns) || context.turns.length > MAX_CONTEXT_TURNS) {
+          return NextResponse.json({
+            error: `Context may include at most ${MAX_CONTEXT_TURNS} previous turns`
+          }, { status: 400 })
+        }
+        for (const turn of context.turns) {
+          if (
+            typeof turn?.query !== 'string' || turn.query.length > MAX_QUERY_LENGTH ||
+            typeof turn?.sql !== 'string' || turn.sql.length > MAX_CONTEXT_SQL_LENGTH
+          ) {
+            return NextResponse.json({ error: 'Invalid context turn' }, { status: 400 })
+          }
+        }
+      }
+      if (context.previousQuery !== undefined &&
+          (typeof context.previousQuery !== 'string' || context.previousQuery.length > MAX_QUERY_LENGTH)) {
+        return NextResponse.json({ error: 'Invalid context' }, { status: 400 })
+      }
+      if (context.previousSql !== undefined &&
+          (typeof context.previousSql !== 'string' || context.previousSql.length > MAX_CONTEXT_SQL_LENGTH)) {
+        return NextResponse.json({ error: 'Invalid context' }, { status: 400 })
+      }
     }
 
     // Sanitize inputs
@@ -735,7 +761,11 @@ function generateQueryPrompt(
   query: string,
   databaseId: string,
   dbConfig: DatabaseConfig,
-  context?: { previousQuery: string; previousSql: string },
+  context?: {
+    turns?: { query: string; sql: string }[]
+    previousQuery?: string
+    previousSql?: string
+  },
   similarQueries?: any[],
   retryFeedback?: { failedSql: string; error: string }
 ): string {
@@ -914,16 +944,33 @@ error. Do not repeat the same mistake.
 `
   }
 
+  // Conversation history: prefer the multi-turn shape, fall back to the
+  // single previous-query shape for older clients
+  const turns: { query: string; sql: string }[] =
+    context?.turns && context.turns.length > 0
+      ? context.turns
+      : context?.previousQuery && context?.previousSql
+        ? [{ query: context.previousQuery, sql: context.previousSql }]
+        : []
+
   let contextSection = ''
-  if (context?.previousQuery && context?.previousSql) {
+  if (turns.length > 0) {
+    const history = turns
+      .map((t, idx) => `Turn ${idx + 1}:
+User asked: "${t.query}"
+You generated: ${t.sql}`)
+      .join('\n\n')
+
     contextSection = `
 
 IMPORTANT - CONVERSATIONAL CONTEXT:
-This is a follow-up question. The previous query was:
-User asked: "${context.previousQuery}"
-You generated: ${context.previousSql}
+This is a follow-up question. The conversation so far (oldest first):
 
-The current question "${query}" is related to the previous one. 
+${history}
+
+The current question "${query}" may refer to ANY of the previous turns —
+"them", "those customers", "the same period" can point at earlier results,
+not just the most recent one.
 CRITICAL: Pay attention to how the previous query was structured:
 - If the previous query used LIMIT 1 (to show just one result), and the current question is asking for a similar thing (like "the lowest" after "the highest"), you MUST also use LIMIT 1
 - If the previous query showed "the top" or "the highest" with LIMIT 1, and now they're asking for "the lowest" or "the bottom", generate a similar query with LIMIT 1
