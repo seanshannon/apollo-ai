@@ -20,8 +20,9 @@ interface RateLimitEntry {
 // In production, use Redis or another distributed cache
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-// Clean up old entries every 5 minutes
-setInterval(() => {
+// Clean up old entries every 5 minutes (unref'd so it never holds the
+// process open — e.g. test runners and one-off scripts)
+const cleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of rateLimitStore.entries()) {
     if (entry.resetTime < now) {
@@ -29,6 +30,7 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000);
+if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();
 
 /**
  * Get client identifier from request

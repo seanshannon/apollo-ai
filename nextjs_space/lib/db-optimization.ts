@@ -404,6 +404,7 @@ export async function performMaintenance() {
 
 // Run maintenance every 5 minutes (more frequent for better cache management)
 if (typeof window === 'undefined') {
-  // Only run on server
-  setInterval(performMaintenance, 5 * 60 * 1000);
+  // Only run on server; unref'd so it never holds the process open
+  const maintenanceTimer = setInterval(performMaintenance, 5 * 60 * 1000);
+  if (typeof maintenanceTimer.unref === 'function') maintenanceTimer.unref();
 }
