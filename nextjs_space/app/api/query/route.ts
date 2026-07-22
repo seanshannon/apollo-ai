@@ -8,6 +8,7 @@ import { createAuditLog } from '@/lib/audit'
 import { executeQuery } from '@/lib/database-query-executor'
 import { storeQueryPattern, searchSimilarQueries } from '@/lib/vector-db'
 import { queryRateLimiter } from '@/lib/rate-limit'
+import { getSchemaDocWithFallback } from '@/lib/schema-introspection'
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60 // Allow up to 60 seconds for complex queries
@@ -288,6 +289,11 @@ export async function POST(request: NextRequest) {
         try {
           // Determine database type and get appropriate configuration
           const dbConfig = getDatabaseConfig(databaseId)
+
+          // Prefer a live-introspected schema document (columns, enums, FKs,
+          // sample values straight from the catalog); the hand-written static
+          // text remains as a fallback if introspection fails
+          dbConfig.schema = await getSchemaDocWithFallback(databaseId, dbConfig.schema)
           
           // Check cache first for consistent results
           const cachedSQL = getCachedSQL(query, databaseId);
