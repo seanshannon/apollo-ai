@@ -146,9 +146,24 @@ model QueryHistory {
   encryptedResults String?
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  shareLinks       ShareLink[]
+
   @@index([organizationId])
   @@index([userId])
+}
+
+model ShareLink {
+  id             String       @id @default(cuid())
+  token          String       @unique
+  queryHistoryId String
+  createdById    String
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  queryHistory   QueryHistory @relation(fields: [queryHistoryId], references: [id], onDelete: Cascade)
+
+  @@index([queryHistoryId])
+  @@map("share_links")
 }
 
 model SavedQuery {

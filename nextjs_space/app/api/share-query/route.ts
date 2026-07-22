@@ -1,21 +1,28 @@
 
 /**
  * Query Sharing API
- * Creates shareable deep links to query results
+ *
+ * Creates shareable deep links to query results using random, DB-backed
+ * tokens. The previous scheme embedded an AES ciphertext of the query id in
+ * the URL — not URL-safe, unrevocable, and dependent on the encryption key.
+ * Tokens here are 256-bit random base64url values with server-side expiry
+ * and revocation.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { randomBytes } from 'crypto'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { createAuditLog } from '@/lib/audit'
-import { encrypt } from '@/lib/encryption'
 
 export const dynamic = "force-dynamic"
 
+const SHARE_LINK_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
 export async function POST(request: NextRequest) {
   const session: any = await getServerSession(authOptions)
-  
+
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -31,7 +38,7 @@ export async function POST(request: NextRequest) {
     // Verify query belongs to user
     const query = await prisma.queryHistory.findUnique({
       where: { id: queryHistoryId },
-      include: { user: true }
+      select: { id: true, userId: true }
     })
 
     if (!query) {
@@ -42,39 +49,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Get request metadata
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                     request.headers.get('x-real-ip') || 
+    const shareLink = await prisma.shareLink.create({
+      data: {
+        token: randomBytes(32).toString('base64url'),
+        queryHistoryId,
+        createdById: session.user.id,
+        expiresAt: new Date(Date.now() + SHARE_LINK_TTL_MS),
+      }
+    })
+
+    const ipAddress = request.headers.get('x-forwarded-for') ||
+                     request.headers.get('x-real-ip') ||
                      'unknown'
     const userAgent = request.headers.get('user-agent') || 'unknown'
 
-    // Create encrypted share token
-    const shareData = {
-      queryId: queryHistoryId,
-      userId: session.user.id,
-      createdAt: new Date().toISOString()
-    }
-    
-    const shareToken = encrypt(JSON.stringify(shareData))
-
-    // Create audit log
     await createAuditLog({
       userId: session.user.id,
       action: 'QUERY_SHARE',
       resource: `query:${queryHistoryId}`,
-      details: { queryHistoryId },
+      details: { queryHistoryId, shareLinkId: shareLink.id },
       ipAddress,
       userAgent,
       success: true
     })
 
-    // Generate shareable URL
     const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
-    const shareUrl = `${baseUrl}/share/${shareToken}`
-
     return NextResponse.json({
       success: true,
-      shareUrl,
+      shareUrl: `${baseUrl}/share/${shareLink.token}`,
+      expiresAt: shareLink.expiresAt.toISOString(),
       expiresIn: '7 days'
     })
 
@@ -96,35 +99,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Token required' }, { status: 400 })
     }
 
-    // Decrypt and verify token
-    const shareData = JSON.parse(decrypt(token))
-    
-    // Check if token is expired (7 days)
-    const createdAt = new Date(shareData.createdAt)
-    const now = new Date()
-    const daysDiff = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
-    
-    if (daysDiff > 7) {
-      return NextResponse.json({ error: 'Share link expired' }, { status: 410 })
-    }
-
-    // Fetch query
-    const query = await prisma.queryHistory.findUnique({
-      where: { id: shareData.queryId },
+    const shareLink = await prisma.shareLink.findUnique({
+      where: { token },
       include: {
-        user: {
-          select: {
-            firstName: true,
-            lastName: true,
-            email: true
+        queryHistory: {
+          include: {
+            user: {
+              select: { firstName: true, lastName: true, email: true }
+            }
           }
         }
       }
     })
 
-    if (!query) {
-      return NextResponse.json({ error: 'Query not found' }, { status: 404 })
+    if (!shareLink || shareLink.revokedAt) {
+      return NextResponse.json({ error: 'Share link not found or revoked' }, { status: 404 })
     }
+
+    if (shareLink.expiresAt.getTime() < Date.now()) {
+      return NextResponse.json({ error: 'Share link expired' }, { status: 410 })
+    }
+
+    const query = shareLink.queryHistory
 
     return NextResponse.json({
       success: true,
@@ -136,7 +132,7 @@ export async function GET(request: NextRequest) {
         generatedSql: query.generatedSql,
         executionTime: query.executionTime,
         createdAt: query.createdAt,
-        sharedBy: query.user.firstName && query.user.lastName 
+        sharedBy: query.user.firstName && query.user.lastName
           ? `${query.user.firstName} ${query.user.lastName}`
           : query.user.email
       }
@@ -151,8 +147,46 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function decrypt(encrypted: string): string {
-  // Use the encryption module's decrypt function
-  const { decrypt: decryptFn } = require('@/lib/encryption')
-  return decryptFn(encrypted)
+/**
+ * Revoke a share link (creator only). Accepts ?token= or ?queryHistoryId=
+ * (the latter revokes all active links for that query).
+ */
+export async function DELETE(request: NextRequest) {
+  const session: any = await getServerSession(authOptions)
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const token = searchParams.get('token')
+    const queryHistoryId = searchParams.get('queryHistoryId')
+
+    if (!token && !queryHistoryId) {
+      return NextResponse.json({ error: 'token or queryHistoryId required' }, { status: 400 })
+    }
+
+    const { count } = await prisma.shareLink.updateMany({
+      where: {
+        createdById: session.user.id,
+        revokedAt: null,
+        ...(token ? { token } : {}),
+        ...(queryHistoryId ? { queryHistoryId } : {}),
+      },
+      data: { revokedAt: new Date() }
+    })
+
+    if (count === 0) {
+      return NextResponse.json({ error: 'No matching active share link' }, { status: 404 })
+    }
+
+    return NextResponse.json({ success: true, revoked: count })
+  } catch (error) {
+    console.error('Revoke share link error:', error)
+    return NextResponse.json(
+      { error: 'Failed to revoke share link' },
+      { status: 500 }
+    )
+  }
 }
