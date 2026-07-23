@@ -18,7 +18,7 @@ export const maxDuration = 60 // Allow up to 60 seconds for complex queries
 
 /**
  * Query cache to ensure consistent SQL generation for identical queries
- * Cache key: `${query.toLowerCase().trim()}:${databaseId}`
+ * Cache key: `${query.trim()}:${databaseId}`
  * Cache value: { sql: string, timestamp: number }
  * Cache TTL: 1 hour (queries older than 1 hour are evicted)
  */
@@ -29,7 +29,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
  * Get cached SQL for a query, or null if not found/expired
  */
 function getCachedSQL(query: string, databaseId: string): string | null {
-  const cacheKey = `${query.toLowerCase().trim()}:${databaseId}`;
+  const cacheKey = `${query.trim()}:${databaseId}`;
   const cached = queryCache.get(cacheKey);
   
   if (!cached) return null;
@@ -48,14 +48,14 @@ function getCachedSQL(query: string, databaseId: string): string | null {
  * Remove a cached SQL entry (used when cached SQL fails to execute)
  */
 function deleteCachedSQL(query: string, databaseId: string): void {
-  queryCache.delete(`${query.toLowerCase().trim()}:${databaseId}`);
+  queryCache.delete(`${query.trim()}:${databaseId}`);
 }
 
 /**
  * Cache SQL for a query
  */
 function cacheSQL(query: string, databaseId: string, sql: string): void {
-  const cacheKey = `${query.toLowerCase().trim()}:${databaseId}`;
+  const cacheKey = `${query.trim()}:${databaseId}`;
   queryCache.set(cacheKey, {
     sql,
     timestamp: Date.now()
@@ -319,16 +319,33 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    // Aborted when the HTTP client disconnects (stream cancel), so in-flight
+    // upstream work — notably the streaming LLM fetch — is torn down instead
+    // of running to completion for an abandoned request.
+    const clientAbort = new AbortController()
+    let clientGone = false
+
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder()
-        
+
+        // Enqueue that no-ops once the client is gone / stream closed, so a
+        // late write can't throw "Invalid state".
+        const safeEnqueue = (chunk: string) => {
+          if (clientGone) return
+          try {
+            controller.enqueue(encoder.encode(chunk))
+          } catch {
+            clientGone = true
+          }
+        }
+
         try {
           const sendProgress = (message: string) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            safeEnqueue(`data: ${JSON.stringify({
               status: 'processing',
               message
-            })}\n\n`))
+            })}\n\n`)
           }
 
           // Determine database type and get appropriate configuration
@@ -409,7 +426,7 @@ export async function POST(request: NextRequest) {
                 : 'First attempt failed — adjusting the query...')
               const similarQueries = await getSimilarQueries()
               const prompt = generateQueryPrompt(query, databaseId, dbConfig, context, similarQueries, retryFeedback)
-              finalResult = await callLLMForSQL(prompt, sendProgress)
+              finalResult = await callLLMForSQL(prompt, sendProgress, clientAbort.signal)
             }
 
             if (!finalResult.success || !finalResult.sql) {
@@ -510,13 +527,18 @@ export async function POST(request: NextRequest) {
                     }
                   })
 
-          controller.enqueue(encoder.encode(`data: ${finalData}\n\n`))
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
-          controller.close()
+          safeEnqueue(`data: ${finalData}\n\n`)
+          safeEnqueue(`data: [DONE]\n\n`)
+          try { controller.close() } catch {}
           return
         } catch (error) {
+          // Client already gone: nothing to report, just stop.
+          if (clientGone || clientAbort.signal.aborted) {
+            try { controller.close() } catch {}
+            return
+          }
           console.error('Query processing error:', error)
-          
+
           const errorMessage = error instanceof Error ? error.message : 'Unknown error'
           
           // Create audit log for failed query
@@ -540,38 +562,47 @@ export async function POST(request: NextRequest) {
             }
           })
 
-          // Send error to client with user-friendly message
-          let userFriendlyError = errorMessage;
-          
-          // Convert technical errors to user-friendly messages
+          // Map to a safe, user-friendly message. Default to a GENERIC message
+          // and only reveal mapped, non-sensitive text — never the raw driver
+          // error, which can contain the internal DB host/IP, port, and
+          // username (e.g. "connect ECONNREFUSED 10.0.3.14:5432", "password
+          // authentication failed for user \"apollo_ro\"").
+          let userFriendlyError = "Something went wrong while running your query. Please try again.";
+
           if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
             userFriendlyError = "I couldn't find that information in the database. Try rephrasing your question or asking about different data.";
           } else if (errorMessage.includes('syntax error') || errorMessage.includes('invalid')) {
             userFriendlyError = "I had trouble understanding your question. Could you try rephrasing it? For example: 'Show me customers in California' or 'List all products'";
           } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
             userFriendlyError = "This query is taking too long. Try asking for a smaller dataset or be more specific.";
-          } else if (errorMessage.includes('permission') || errorMessage.includes('denied')) {
+          } else if (errorMessage.toLowerCase().includes('permission') || errorMessage.toLowerCase().includes('denied') || errorMessage.includes('not accessible')) {
             userFriendlyError = "You don't have permission to access this data. Contact your administrator.";
-          } else if (errorMessage.includes('connection') || errorMessage.includes('network')) {
-            userFriendlyError = "Connection issue. Please check your internet and try again.";
-          } else if (errorMessage.includes('AI service') || errorMessage.includes('LLM')) {
+          } else if (errorMessage.includes('AI service') || errorMessage.includes('LLM') || errorMessage.includes('AI response')) {
             userFriendlyError = "Our AI service is temporarily unavailable. Please try again in a moment.";
+          } else if (errorMessage.includes('Query rejected')) {
+            userFriendlyError = "That question can't be answered safely against this database. Try rephrasing it.";
           }
-          
+
           const errorData = JSON.stringify({
             status: 'error',
             result: {
               status: 'error',
               error: userFriendlyError,
               summary: 'Could not complete your request',
+              // Raw details only in development, never in production responses
               technicalError: process.env.NODE_ENV === 'development' ? errorMessage : undefined
             }
           })
-          controller.enqueue(encoder.encode(`data: ${errorData}\n\n`))
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`))
-          controller.close()
+          safeEnqueue(`data: ${errorData}\n\n`)
+          safeEnqueue(`data: [DONE]\n\n`)
+          try { controller.close() } catch {}
         }
-      }
+      },
+      cancel() {
+        // HTTP client disconnected: tear down upstream work (LLM fetch).
+        clientGone = true
+        clientAbort.abort()
+      },
     })
 
     return new Response(stream, {
@@ -602,15 +633,23 @@ export async function POST(request: NextRequest) {
  */
 async function callLLMForSQL(
   prompt: string,
-  onProgress: (message: string) => void
+  onProgress: (message: string) => void,
+  externalSignal?: AbortSignal
 ): Promise<any> {
   const llm = getLLMConfig()
 
-  // AbortController with timeout to prevent hanging requests
+  // AbortController with timeout to prevent hanging requests. It also aborts
+  // when the caller's signal fires (client disconnect), so an abandoned
+  // request's upstream fetch is torn down immediately rather than streaming
+  // for up to 50s.
   const abortController = new AbortController()
   const timeoutId = setTimeout(() => {
     abortController.abort()
   }, 50000) // 50 second timeout
+  if (externalSignal) {
+    if (externalSignal.aborted) abortController.abort()
+    else externalSignal.addEventListener('abort', () => abortController.abort(), { once: true })
+  }
 
   let response: Response
   try {

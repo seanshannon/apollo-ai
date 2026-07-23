@@ -92,11 +92,24 @@ class RedisStore implements RateLimitStore {
   }
 
   async increment(key: string, windowMs: number) {
-    const count = await this.client.incr(key);
-    if (count === 1) {
-      await this.client.pexpire(key, windowMs);
-    }
-    const ttl = await this.client.pttl(key);
+    // Atomic: INCR, then ensure a TTL exists. Splitting INCR and PEXPIRE into
+    // two round-trips risks a crash between them leaving the counter with no
+    // expiry (PTTL -1) — it would then climb forever and lock the user out
+    // permanently. The Lua script runs as one unit and (re)applies the TTL
+    // whenever the key has none, so an orphaned counter self-heals.
+    const result = (await this.client.eval(
+      `local c = redis.call('INCR', KEYS[1])
+       if redis.call('PTTL', KEYS[1]) < 0 then
+         redis.call('PEXPIRE', KEYS[1], ARGV[1])
+       end
+       return {c, redis.call('PTTL', KEYS[1])}`,
+      1,
+      key,
+      String(windowMs)
+    )) as [number, number];
+
+    const count = Number(result[0]);
+    const ttl = Number(result[1]);
     return {
       count,
       resetTime: Date.now() + (ttl > 0 ? ttl : windowMs),

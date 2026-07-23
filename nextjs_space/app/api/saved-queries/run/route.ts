@@ -130,7 +130,14 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Run saved query error:', error)
-    const message = error instanceof Error ? error.message : 'Failed to run saved query'
-    return NextResponse.json({ error: message }, { status: 500 })
+    const raw = error instanceof Error ? error.message : ''
+    // Only surface our own safe, mapped messages; never the raw driver error
+    // (which can leak internal DB host/port/username).
+    const safe =
+      raw.includes('Query rejected') ? 'This saved query can no longer be run safely against its database.' :
+      raw.includes('not accessible') || raw.toLowerCase().includes('permission') ? 'You no longer have access to this data.' :
+      raw.includes('timed out') || raw.includes('timeout') ? 'The query took too long to run.' :
+      'Failed to run saved query. Please try again.'
+    return NextResponse.json({ error: safe }, { status: 500 })
   }
 }

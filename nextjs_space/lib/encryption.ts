@@ -23,6 +23,19 @@ function getValidatedEncryptionKey(): string {
     throw new Error('ENCRYPTION_KEY appears to be using a default value. Please set a secure key.');
   }
 
+  // Warn on low-entropy keys: a 32-char key of few distinct characters (or an
+  // obvious repeat) is far weaker than 32 random bytes and makes offline
+  // recovery of leaked credential blobs feasible. Not a hard failure so a
+  // running deployment with an existing key is not bricked, but it must be
+  // visible in logs.
+  const distinct = new Set(key).size
+  if (distinct < 12 || /^(.)\1+$/.test(key)) {
+    console.warn(
+      '[encryption] ENCRYPTION_KEY has low entropy (few distinct characters). ' +
+        'Use a high-entropy value such as `openssl rand -base64 48`.'
+    )
+  }
+
   return key;
 }
 

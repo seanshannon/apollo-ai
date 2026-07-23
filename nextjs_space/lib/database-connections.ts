@@ -183,13 +183,16 @@ export async function testConnection(config: ConnectionConfig): Promise<boolean>
 }
 
 /**
- * Remove a connection
+ * Remove a connection (soft delete) and tear down its cached pool so no
+ * stale pooled connections linger.
  */
 export async function removeConnection(connectionId: string): Promise<void> {
   await prisma.zKDatabaseConnection.update({
     where: { id: connectionId },
     data: { isActive: false }
   })
+  const { evictPool } = await import('./external-db')
+  await evictPool(connectionId)
 }
 
 /**
@@ -227,6 +230,11 @@ export async function updateConnection(
       encryptedCredentials: JSON.stringify(updatedCredentials)
     }
   })
+
+  // Credentials/host may have changed — drop the cached pool so the next use
+  // reconnects with the new configuration instead of stale pooled sockets.
+  const { evictPool } = await import('./external-db')
+  await evictPool(connectionId)
 
   return {
     id: updated.id,

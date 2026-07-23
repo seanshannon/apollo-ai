@@ -33,13 +33,21 @@ describe('email masking', () => {
 })
 
 describe('phone masking', () => {
-  it('detects common phone formats', () => {
+  it('detects common formatted phone formats', () => {
     expect(containsPhone('call 555-123-4567')).toBe(true)
     expect(containsPhone('call (555) 123-4567')).toBe(true)
+    expect(containsPhone('call +1 555 123 4567')).toBe(true)
   })
 
   it('keeps only the last four digits', () => {
     expect(maskPhone('555-123-4567')).toBe('***-***-4567')
+  })
+
+  it('does NOT treat a bare 10-digit run as a phone number', () => {
+    expect(containsPhone('account 5550000000')).toBe(false)
+    const { masked, detected } = maskPII('account 5550000000')
+    expect(masked).toContain('5550000000')
+    expect(detected).not.toContain('phone')
   })
 })
 
@@ -65,9 +73,16 @@ describe('SSN masking', () => {
     expect(detected).not.toContain('ssn')
   })
 
-  it('still masks structurally valid bare SSNs', () => {
-    const { masked, detected } = maskPII('ssn 123456789')
-    expect(masked).not.toContain('123456789')
+  it('does NOT mask bare 9-digit numbers even if SSN-structured (routing/account ids)', () => {
+    // 011401533 is a real ABA routing number that happens to be SSN-structured
+    const { masked, detected } = maskPII('routing 011401533')
+    expect(masked).toContain('011401533')
+    expect(detected).not.toContain('ssn')
+  })
+
+  it('masks a structurally valid dashed SSN', () => {
+    const { masked, detected } = maskPII('ssn 123-45-6789')
+    expect(masked).not.toContain('123-45-6789')
     expect(detected).toContain('ssn')
   })
 })
@@ -128,6 +143,37 @@ describe('maskQueryResults', () => {
   it('returns null/undefined unchanged', () => {
     expect(maskQueryResults(null)).toBeNull()
     expect(maskQueryResults(undefined)).toBeUndefined()
+  })
+
+  it('preserves Date values instead of destroying them into {}', () => {
+    const d = new Date('2024-01-01T00:00:00.000Z')
+    const masked = maskQueryResults([{ id: 1, createdAt: d }])
+    expect(masked[0].createdAt).toBeInstanceOf(Date)
+    expect(masked[0].createdAt.getTime()).toBe(d.getTime())
+  })
+
+  it('preserves numbers, booleans, and bigints', () => {
+    const masked = maskQueryResults([{ n: 3.14, ok: true, big: 10n }])
+    expect(masked[0].n).toBe(3.14)
+    expect(masked[0].ok).toBe(true)
+    expect(masked[0].big).toBe(10n)
+  })
+})
+
+describe('ReDoS resistance', () => {
+  it('handles adversarial near-email input in well under a second', () => {
+    const evil = 'a@' + 'a.'.repeat(50000) + '!'
+    const start = Date.now()
+    maskPII(evil)
+    expect(Date.now() - start).toBeLessThan(1000)
+  })
+
+  it('skips masking of very large values', () => {
+    const big = 'x'.repeat(5000) + ' john@example.com'
+    const { masked, detected } = maskPII(big)
+    // Over the size cap: returned unchanged, no masking attempted
+    expect(masked).toBe(big)
+    expect(detected).toEqual([])
   })
 })
 

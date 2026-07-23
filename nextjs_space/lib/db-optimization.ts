@@ -35,29 +35,24 @@ function getCacheTier(query: string): {
   name: string;
 } {
   const lowerQuery = query.toLowerCase();
-  
-  // Hot tier: Simple lookups, counts, frequently accessed data
-  if (
-    lowerQuery.includes('count(*)') ||
-    lowerQuery.includes('where id =') ||
-    lowerQuery.includes('limit 1')
-  ) {
+
+  // Word/paren-aware matching so quoted literals (e.g. WHERE note = 'min(s)')
+  // don't spuriously route a query into the wrong tier the way substring
+  // includes() did.
+  const HOT_RE = /\bcount\s*\(\s*\*\s*\)|\bwhere\s+id\s*=|\blimit\s+1\b/;
+  const AGG_RE = /\bgroup\s+by\b|\bhaving\b|\b(avg|sum|max|min|count)\s*\(/;
+
+  // Hot tier: simple lookups, counts, frequently accessed data
+  if (HOT_RE.test(lowerQuery)) {
     return { cache: hotQueryCache, name: 'HOT' };
   }
-  
-  // Cold tier: Analytical queries with aggregations
-  if (
-    lowerQuery.includes('group by') ||
-    lowerQuery.includes('having') ||
-    lowerQuery.includes('avg(') ||
-    lowerQuery.includes('sum(') ||
-    lowerQuery.includes('max(') ||
-    lowerQuery.includes('min(')
-  ) {
+
+  // Cold tier: analytical queries with aggregations
+  if (AGG_RE.test(lowerQuery)) {
     return { cache: analyticalQueryCache, name: 'COLD' };
   }
-  
-  // Warm tier: Everything else
+
+  // Warm tier: everything else
   return { cache: queryResultCache, name: 'WARM' };
 }
 
@@ -97,14 +92,12 @@ export async function cachedQuery<T = any>(
     console.log(`[DB Cache] COLD Hit: ${key.substring(0, 50)}...`);
     return cached;
   }
-  
-  // Check LRU cache for recent queries
-  cached = recentQueriesCache.get(key);
-  if (cached !== undefined) {
-    console.log(`[DB Cache] LRU Hit: ${key.substring(0, 50)}...`);
-    return cached;
-  }
-  
+
+  // NOTE: recentQueriesCache (LRU) is intentionally NOT consulted here. It has
+  // no TTL, so reading it as an authoritative source would resurrect entries
+  // whose tier TTL had already expired and serve stale rows indefinitely. It
+  // is kept only as a bounded record of recent activity for stats.
+
   // Execute query
   console.log(`[DB Cache] MISS - Executing: ${key.substring(0, 50)}...`);
   const startTime = performance.now();

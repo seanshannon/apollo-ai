@@ -15,6 +15,7 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { createAuditLog } from '@/lib/audit'
+import { sanitizeSQLForLogging } from '@/lib/sql-validator'
 
 export const dynamic = "force-dynamic"
 
@@ -122,6 +123,15 @@ export async function GET(request: NextRequest) {
 
     const query = shareLink.queryHistory
 
+    // This endpoint is UNAUTHENTICATED (anyone with the link). Do not expose:
+    //  - the raw generated SQL, whose WHERE literals echo back the exact
+    //    values the sharer typed (emails, ids); strip literals first.
+    //  - the sharer's raw email address (user enumeration / phishing); fall
+    //    back to a generic label, never the email.
+    const sharedBy = query.user.firstName && query.user.lastName
+      ? `${query.user.firstName} ${query.user.lastName}`
+      : query.user.firstName || 'A teammate'
+
     return NextResponse.json({
       success: true,
       query: {
@@ -129,12 +139,10 @@ export async function GET(request: NextRequest) {
         databaseName: query.databaseName,
         results: query.results,
         resultsSummary: query.resultsSummary,
-        generatedSql: query.generatedSql,
+        generatedSql: query.generatedSql ? sanitizeSQLForLogging(query.generatedSql) : query.generatedSql,
         executionTime: query.executionTime,
         createdAt: query.createdAt,
-        sharedBy: query.user.firstName && query.user.lastName
-          ? `${query.user.firstName} ${query.user.lastName}`
-          : query.user.email
+        sharedBy
       }
     })
 

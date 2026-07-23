@@ -173,6 +173,23 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
+    // SECURITY: verify the caller is a member of the connection's org before
+    // deleting — connection IDs are not capability tokens. Return 404 (not
+    // 403) so a non-member cannot distinguish "exists elsewhere" from
+    // "does not exist" and enumerate other orgs' connection IDs.
+    const membership = await prisma.organizationMember.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: connection.organizationId,
+          userId: session.user.id
+        }
+      }
+    })
+
+    if (!membership) {
+      return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
+    }
+
     await removeConnection(connectionId)
 
     // Get request metadata

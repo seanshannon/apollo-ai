@@ -64,3 +64,4 @@ prisma/dev.db-journal
 # Testing artifacts
 dashboard.html
 cookies.txt
+dump.rdb

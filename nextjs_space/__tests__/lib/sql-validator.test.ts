@@ -166,6 +166,22 @@ describe('validateGeneratedSQL', () => {
       )
       expect(r.valid).toBe(false)
     })
+
+    it('rejects bare pg_-prefixed catalog functions not on the denylist', () => {
+      expect(validateGeneratedSQL('SELECT pg_stat_get_activity(NULL)', 'sales').valid).toBe(false)
+      expect(validateGeneratedSQL('SELECT pg_ls_waldir()', 'sales').valid).toBe(false)
+    })
+
+    it('rejects schema-qualified functions outside public', () => {
+      const r = validateGeneratedSQL('SELECT pg_catalog.current_database()', 'sales')
+      expect(r.valid).toBe(false)
+      expect(r.error).toMatch(/schema/i)
+    })
+
+    it('still allows ordinary aggregate/scalar functions', () => {
+      expect(validateGeneratedSQL('SELECT COUNT(*), MAX("totalSpent") FROM sales_customers', 'sales').valid).toBe(true)
+      expect(validateGeneratedSQL('SELECT UPPER("firstName") FROM sales_customers', 'sales').valid).toBe(true)
+    })
   })
 
   describe('fail-closed behavior', () => {

@@ -92,7 +92,7 @@ export interface SQLValidationResult {
 
 interface WalkState {
   tables: { name: string; schema?: string }[]
-  functions: string[]
+  functions: { name: string; schema?: string }[]
   cteNames: Set<string>
   selectCount: number
 }
@@ -127,7 +127,9 @@ function walk(node: unknown, state: WalkState): void {
     case 'call': {
       // Function call: { type: 'call', function: { name, schema? } }
       const fn = typeof n.function === 'object' && n.function !== null ? n.function : {}
-      if (typeof fn.name === 'string') state.functions.push(fn.name.toLowerCase())
+      if (typeof fn.name === 'string') {
+        state.functions.push({ name: fn.name.toLowerCase(), schema: fn.schema?.toLowerCase() })
+      }
       break
     }
     case 'with':
@@ -205,8 +207,16 @@ export function validateSQLAgainstAllowlist(
   }
 
   for (const fn of state.functions) {
-    if (BLOCKED_FUNCTIONS.has(fn)) {
-      return { valid: false, error: `Function "${fn}" is not allowed` }
+    // Reject schema-qualified functions outside public (e.g. pg_catalog.foo())
+    if (fn.schema && fn.schema !== 'public') {
+      return { valid: false, error: `Function schema "${fn.schema}" is not accessible` }
+    }
+    // Reject the explicit denylist and any catalog/system function. Analytics
+    // SQL over business tables never needs pg_*-prefixed functions, and
+    // several (pg_stat_get_activity, pg_ls_dir, ...) leak server state even
+    // when called bare via the search_path.
+    if (BLOCKED_FUNCTIONS.has(fn.name) || fn.name.startsWith('pg_')) {
+      return { valid: false, error: `Function "${fn.name}" is not allowed` }
     }
   }
 
@@ -227,11 +237,20 @@ export function validateSQLAgainstAllowlist(
 }
 
 /**
- * Sanitizes SQL for logging (strips literals and long numbers that may be PII)
+ * Sanitizes SQL for logging (strips literals that may contain secrets/PII).
+ * Covers single-quoted strings, E'...' escape strings, $tag$...$tag$
+ * dollar-quoted strings, double-quoted identifiers, and numeric literals.
  */
 export function sanitizeSQLForLogging(sql: string): string {
   return sql
-    .replace(/'[^']*'/g, "'***'")
+    // Dollar-quoted strings: $$...$$ or $tag$...$tag$ (matched tag)
+    .replace(/\$([A-Za-z0-9_]*)\$[\s\S]*?\$\1\$/g, '$$***$$')
+    // Escape strings E'...' (handles doubled and backslash-escaped quotes)
+    .replace(/[eE]'(?:''|\\.|[^'])*'/g, "'***'")
+    // Ordinary single-quoted strings (handles doubled '' escapes)
+    .replace(/'(?:''|[^'])*'/g, "'***'")
+    // Double-quoted identifiers
     .replace(/"[^"]*"/g, '"***"')
-    .replace(/\b\d{6,}\b/g, '######')
+    // Numeric literals of any length (short ones can still be sensitive)
+    .replace(/\b\d{3,}\b/g, '######')
 }

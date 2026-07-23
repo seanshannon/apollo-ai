@@ -11,11 +11,24 @@ export interface PIIMask {
 }
 
 /**
+ * Email pattern with NON-overlapping quantifiers. The domain is matched as
+ * explicit dot-separated labels ([A-Za-z0-9-]+ then (?:\.[A-Za-z0-9-]+)*)
+ * rather than a single [A-Za-z0-9.-]+ class, so the '.' can only be consumed
+ * by an explicit label boundary. This removes the ambiguity that caused
+ * catastrophic backtracking (quadratic/exponential blowup) on adversarial
+ * inputs like 'a@' + 'a.'.repeat(50000) + '!'.
+ */
+const EMAIL_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
+
+/** Upper bound on the length of any single value we attempt to mask (a defense
+ * against pathological regex runtime on very large text/JSON column values). */
+const MAX_MASK_LENGTH = 4096
+
+/**
  * Detects if string contains email
  */
 export function containsEmail(text: string): boolean {
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g
-  return emailRegex.test(text)
+  return new RegExp(EMAIL_REGEX.source).test(text)
 }
 
 /**
@@ -30,12 +43,18 @@ export function maskEmail(email: string): string {
 }
 
 /**
- * Detects if string contains phone number. Digit-boundary guards stop the
- * pattern from matching inside longer digit runs (card numbers, ids).
+ * Phone pattern requiring FORMATTING (at least the group separators must be
+ * present). Bare 10-digit runs are NOT treated as phone numbers — they are
+ * far more likely to be account/order ids, and masking them corrupts
+ * legitimate results. Digit-boundary guards stop matches inside longer runs.
+ */
+const PHONE_REGEX = /(?<!\d)(?:\+?\d{1,3}[-.\s])?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}(?!\d)/g
+
+/**
+ * Detects if string contains a formatted phone number.
  */
 export function containsPhone(text: string): boolean {
-  const phoneRegex = /(?<!\d)(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)/g
-  return phoneRegex.test(text)
+  return new RegExp(PHONE_REGEX.source).test(text)
 }
 
 /**
@@ -67,10 +86,13 @@ export function isLikelySSN(value: string): boolean {
 }
 
 /**
- * Detects if string contains SSN
+ * Detects if string contains an SSN. Only the DASHED 3-2-4 form is treated as
+ * an SSN: a bare 9-digit run is indistinguishable from a routing number,
+ * account id, or order number, and masking those corrupts legitimate results.
+ * The dashed form must also pass structural (SSA) validation.
  */
 export function containsSSN(text: string): boolean {
-  const matches = text.match(/\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b/g)
+  const matches = text.match(/\b\d{3}-\d{2}-\d{4}\b/g)
   return !!matches && matches.some(isLikelySSN)
 }
 
@@ -154,14 +176,30 @@ export function clearNameTokens() {
  */
 export function maskPII(text: string): { masked: string; detected: string[] } {
   if (!text) return { masked: text, detected: [] }
-  
+
+  // Skip very large values: they are almost never a single PII datum, and
+  // running several global regexes over a multi-KB blob is a data-driven
+  // CPU/latency risk. (Any embedded PII in such a field is not this layer's
+  // job to catch.)
+  if (text.length > MAX_MASK_LENGTH) return { masked: text, detected: [] }
+
   let masked = text
   const detected: string[] = []
 
-  // Mask SSN — only values that structurally look like real SSNs; a bare
-  // 9-digit order number or id passes through untouched
-  if (containsSSN(text)) {
-    masked = masked.replace(/\b\d{3}-\d{2}-\d{4}\b|\b\d{9}\b/g, (match) => {
+  // Order matters: mask EMAIL first so digit runs inside an address's
+  // local-part (e.g. a Luhn-valid number before the @) are not separately
+  // rewritten by the card/phone maskers, which would produce order-dependent,
+  // non-deterministic output.
+  if (containsEmail(masked)) {
+    masked = masked.replace(new RegExp(EMAIL_REGEX.source, 'g'), (match) => {
+      detected.push('email')
+      return maskEmail(match)
+    })
+  }
+
+  // Mask SSN — dashed 3-2-4 form only, and only if structurally valid
+  if (containsSSN(masked)) {
+    masked = masked.replace(/\b\d{3}-\d{2}-\d{4}\b/g, (match) => {
       if (!isLikelySSN(match)) return match
       detected.push('ssn')
       return maskSSN(match)
@@ -169,7 +207,7 @@ export function maskPII(text: string): { masked: string; detected: string[] } {
   }
 
   // Mask Credit Cards — only numbers that pass the Luhn checksum
-  if (containsCreditCard(text)) {
+  if (containsCreditCard(masked)) {
     masked = masked.replace(/\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g, (match) => {
       if (!passesLuhn(match)) return match
       detected.push('credit_card')
@@ -177,17 +215,9 @@ export function maskPII(text: string): { masked: string; detected: string[] } {
     })
   }
 
-  // Mask Emails
-  if (containsEmail(text)) {
-    masked = masked.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, (match) => {
-      detected.push('email')
-      return maskEmail(match)
-    })
-  }
-
-  // Mask Phone Numbers (digit-boundary guards keep longer digit runs intact)
+  // Mask Phone Numbers — formatted numbers only (bare digit runs left intact)
   if (containsPhone(masked)) {
-    masked = masked.replace(/(?<!\d)(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)/g, (match) => {
+    masked = masked.replace(new RegExp(PHONE_REGEX.source, 'g'), (match) => {
       detected.push('phone')
       return maskPhone(match)
     })
@@ -197,29 +227,42 @@ export function maskPII(text: string): { masked: string; detected: string[] } {
 }
 
 /**
- * Masks PII in query results
+ * True only for plain objects ({} / Object.create(null)). Dates, Buffers,
+ * BigInt wrappers, and other class instances are NOT plain — recursing into
+ * them with Object.entries() would strip their contents (a Date became {}).
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object') return false
+  if (Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+/**
+ * Masks PII in query results. Strings are masked; arrays and plain objects are
+ * traversed; everything else (Date, Buffer, number, boolean, null, class
+ * instances) is passed through UNCHANGED so timestamps and typed values are
+ * not destroyed.
  */
 export function maskQueryResults(results: any): any {
-  if (!results) return results
+  if (results === null || results === undefined) return results
+
+  if (typeof results === 'string') {
+    return maskPII(results).masked
+  }
 
   if (Array.isArray(results)) {
     return results.map(row => maskQueryResults(row))
   }
 
-  if (typeof results === 'object') {
+  if (isPlainObject(results)) {
     const masked: any = {}
     for (const [key, value] of Object.entries(results)) {
-      if (typeof value === 'string') {
-        const { masked: maskedValue } = maskPII(value)
-        masked[key] = maskedValue
-      } else if (typeof value === 'object') {
-        masked[key] = maskQueryResults(value)
-      } else {
-        masked[key] = value
-      }
+      masked[key] = maskQueryResults(value)
     }
     return masked
   }
 
+  // Date, Buffer, number, boolean, and other non-plain values: unchanged
   return results
 }
